@@ -1,0 +1,32 @@
+exp/sgmm3/decode_dev10h/score_10/dev10h.ctm.sys          Sum/Avg  22313  52407  29.4  47.3  23.3  2.8  73.4  31.0  -0.479
+exp/sgmm3/decode_dev10h/score_9/dev10h.ctm.sys           Sum/Avg  22313  52407  30.1  49.4  20.5  3.6  73.4  31.1  -0.543
+exp/sgmm3/decode_dev10h/score_11/dev10h.ctm.sys          Sum/Avg  22313  52407  28.5  45.3  26.2  2.2  73.7  31.0  -0.449
+exp/sgmm3/decode_dev10h/score_8/dev10h.ctm.sys           Sum/Avg  22313  52407  30.8  51.6  17.6  4.6  73.8  31.2  -0.672
+exp/sgmm3/decode_dev10h/score_12/dev10h.ctm.sys          Sum/Avg  22313  52407  27.6  43.6  28.8  1.8  74.2  31.0  -0.436
+exp/sgmm3/decode_dev10h/score_7/dev10h.ctm.sys           Sum/Avg  22313  52407  31.2  54.0  14.8  5.9  74.7  31.4  -0.870
+exp/sgmm3/decode_dev10h/score_13/dev10h.ctm.sys          Sum/Avg  22313  52407  26.8  42.3  30.9  1.6  74.8  31.1  -0.463
+exp/sgmm3/decode_dev10h/score_14/dev10h.ctm.sys          Sum/Avg  22313  52407  26.1  41.3  32.6  1.4  75.3  31.1  -0.494
+exp/sgmm3/decode_dev10h/score_15/dev10h.ctm.sys          Sum/Avg  22313  52407  25.5  40.7  33.8  1.3  75.8  31.1  -0.538
+exp/sgmm3/decode_dev10h/score_16/dev10h.ctm.sys          Sum/Avg  22313  52407  24.9  40.2  34.9  1.1  76.2  31.2  -0.591
+exp/sgmm3/decode_dev10h/score_17/dev10h.ctm.sys          Sum/Avg  22313  52407  24.4  39.9  35.7  1.1  76.6  31.2  -0.643
+exp/sgmm3/decode_dev10h_sept14_/score_10/dev10h.ctm.sys  Sum/Avg  22313  52407  0.9   0.0   99.1  0.2  99.3  38.7
+exp/sgmm3/decode_dev10h_sept14/score_10/dev10h.ctm.sys   Sum/Avg  22313  52407  0.9   0.0   99.1  0.2  99.3  38.7
+exp/sgmm3/decode_dev10h_sept14_/score_11/dev10h.ctm.sys  Sum/Avg  22313  52407  0.9   0.0   99.1  0.2  99.3  38.7
+exp/sgmm3/decode_dev10h_sept14/score_11/dev10h.ctm.sys   Sum/Avg  22313  52407  0.9   0.0   99.1  0.2  99.3  38.7
+exp/sgmm3/decode_dev10h_sept14_/score_12/dev10h.ctm.sys  Sum/Avg  22313  52407  0.9   0.0   99.1  0.2  99.3  38.7
+exp/sgmm3/decode_dev10h_sept14/score_12/dev10h.ctm.sys   Sum/Avg  22313  52407  0.9   0.0   99.1  0.2  99.3  38.7
+exp/sgmm3/decode_dev10h_sept14_/score_13/dev10h.ctm.sys  Sum/Avg  22313  52407  0.9   0.0   99.1  0.2  99.3  38.7
+exp/sgmm3/decode_dev10h_sept14/score_13/dev10h.ctm.sys   Sum/Avg  22313  52407  0.9   0.0   99.1  0.2  99.3  38.7
+exp/sgmm3/decode_dev10h_sept14_/score_14/dev10h.ctm.sys  Sum/Avg  22313  52407  0.9   0.0   99.1  0.2  99.3  38.7
+exp/sgmm3/decode_dev10h_sept14/score_14/dev10h.ctm.sys   Sum/Avg  22313  52407  0.9   0.0   99.1  0.2  99.3  38.7
+exp/sgmm3/decode_dev10h_sept14/score_15/dev10h.ctm.sys   Sum/Avg  22313  52407  0.9   0.0   99.1  0.2  99.3  38.7
+exp/sgmm3/decode_dev10h_sept14_/score_16/dev10h.ctm.sys  Sum/Avg  22313  52407  0.9   0.0   99.1  0.2  99.3  38.7
+exp/sgmm3/decode_dev10h_sept14/score_16/dev10h.ctm.sys   Sum/Avg  22313  52407  0.9   0.0   99.1  0.2  99.3  38.7
+exp/sgmm3/decode_dev10h_sept14_/score_17/dev10h.ctm.sys  Sum/Avg  22313  52407  0.9   0.0   99.1  0.2  99.3  38.7
+exp/sgmm3/decode_dev10h_sept14/score_17/dev10h.ctm.sys   Sum/Avg  22313  52407  0.9   0.0   99.1  0.2  99.3  38.7
+exp/sgmm3/decode_dev10h_sept14_/score_7/dev10h.ctm.sys   Sum/Avg  22313  52407  0.9   0.0   99.1  0.2  99.3  38.7
+exp/sgmm3/decode_dev10h_sept14/score_7/dev10h.ctm.sys    Sum/Avg  22313  52407  0.9   0.0   99.1  0.2  99.3  38.7
+exp/sgmm3/decode_dev10h_sept14_/score_8/dev10h.ctm.sys   Sum/Avg  22313  52407  0.9   0.0   99.1  0.2  99.3  38.7
+exp/sgmm3/decode_dev10h_sept14/score_8/dev10h.ctm.sys    Sum/Avg  22313  52407  0.9   0.0   99.1  0.2  99.3  38.7
+exp/sgmm3/decode_dev10h_sept14_/score_9/dev10h.ctm.sys   Sum/Avg  22313  52407  0.9   0.0   99.1  0.2  99.3  38.7
+exp/sgmm3/decode_dev10h_sept14/score_9/dev10h.ctm.sys    Sum/Avg  22313  52407  0.9   0.0   99.1  0.2  99.3  38.7
