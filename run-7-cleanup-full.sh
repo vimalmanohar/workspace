@@ -25,7 +25,6 @@ if [[ ! -f data/train_filtered/utt2spk ]]; then
   echo ---------------------------------------------------------------------
   steps/discriminative_data_cleanup.sh --cmd "$decode_cmd" --threshold $threshold exp/sgmm5_denlats data/train || exit 1
 fi
-exit 
 
 if [[ ! -f data/train_filtered/glm || data/train_filtered/glm -ot "$glmFile" ]]; then
   echo ---------------------------------------------------------------------
@@ -33,6 +32,8 @@ if [[ ! -f data/train_filtered/glm || data/train_filtered/glm -ot "$glmFile" ]];
   echo ---------------------------------------------------------------------
   local/prepare_stm.pl --fragmentMarkers \-\*\~ data/train_filtered || exit 1
 fi
+
+mkdir -p exp
 
 if [ ! -f data/train_filtered_sub3/.done ]; then
   echo ---------------------------------------------------------------------
@@ -102,10 +103,10 @@ echo ---------------------------------------------------------------------
 if [ ! -f exp/tri3_filtered/.done ]; then
   steps/align_si.sh \
     --boost-silence $boost_sil --nj $train_nj --cmd "$train_cmd" \
-    data/train data/lang exp/tri2_filtered exp/tri2_ali_filtered
+    data/train_filtered data/lang exp/tri2_filtered exp/tri2_ali_filtered
   steps/train_deltas.sh \
     --boost-silence $boost_sil --cmd "$train_cmd" \
-    $numLeavesTri3 $numGaussTri3 data/train data/lang exp/tri2_ali_filtered exp/tri3_filtered
+    $numLeavesTri3 $numGaussTri3 data/train_filtered data/lang exp/tri2_ali_filtered exp/tri3_filtered
   touch exp/tri3_filtered/.done
 fi
 
@@ -115,10 +116,10 @@ echo ---------------------------------------------------------------------
 if [ ! -f exp/tri4_filtered/.done ]; then
   steps/align_si.sh \
     --boost-silence $boost_sil --nj $train_nj --cmd "$train_cmd" \
-    data/train data/lang exp/tri3_filtered exp/tri3_ali_filtered
+    data/train_filtered data/lang exp/tri3_filtered exp/tri3_ali_filtered
   steps/train_lda_mllt.sh \
     --boost-silence $boost_sil --cmd "$train_cmd" \
-    $numLeavesMLLT $numGaussMLLT data/train data/lang exp/tri3_ali_filtered exp/tri4_filtered
+    $numLeavesMLLT $numGaussMLLT data/train_filtered data/lang exp/tri3_ali_filtered exp/tri4_filtered
   touch exp/tri4_filtered/.done
 fi
 
@@ -129,10 +130,10 @@ echo ---------------------------------------------------------------------
 if [ ! -f exp/tri5_filtered/.done ]; then
   steps/align_si.sh \
     --boost-silence $boost_sil --nj $train_nj --cmd "$train_cmd" \
-    data/train data/lang exp/tri4_filtered exp/tri4_ali_filtered
+    data/train_filtered data/lang exp/tri4_filtered exp/tri4_ali_filtered
   steps/train_sat.sh \
     --boost-silence $boost_sil --cmd "$train_cmd" \
-    $numLeavesSAT $numGaussSAT data/train data/lang exp/tri4_ali_filtered exp/tri5_filtered
+    $numLeavesSAT $numGaussSAT data/train_filtered data/lang exp/tri4_ali_filtered exp/tri5_filtered
   touch exp/tri5_filtered/.done
 fi
 
@@ -146,7 +147,7 @@ if [ ! -f exp/tri5_ali_filtered/.done ]; then
   echo ---------------------------------------------------------------------
   steps/align_fmllr.sh \
     --boost-silence $boost_sil --nj $train_nj --cmd "$train_cmd" \
-    data/train data/lang exp/tri5_filtered exp/tri5_ali_filtered
+    data/train_filtered data/lang exp/tri5_filtered exp/tri5_ali_filtered
   touch exp/tri5_ali_filtered/.done
 fi
 
@@ -156,7 +157,7 @@ if [ ! -f exp/ubm5_filtered/.done ]; then
   echo ---------------------------------------------------------------------
   steps/train_ubm.sh \
     --cmd "$train_cmd" $numGaussUBM \
-    data/train data/lang exp/tri5_ali_filtered exp/ubm5_filtered
+    data/train_filtered data/lang exp/tri5_ali_filtered exp/ubm5_filtered
   touch exp/ubm5_filtered/.done
 fi
 
@@ -166,10 +167,10 @@ if [ ! -f exp/sgmm5_filtered/.done ]; then
   echo ---------------------------------------------------------------------
   steps/train_sgmm2.sh \
     --cmd "$train_cmd" $numLeavesSGMM $numGaussSGMM \
-    data/train data/lang exp/tri5_ali_filtered exp/ubm5_filtered/final.ubm exp/sgmm5_filtered
+    data/train_filtered data/lang exp/tri5_ali_filtered exp/ubm5_filtered/final.ubm exp/sgmm5_filtered
   #steps/train_sgmm2_group.sh \
   #  --cmd "$train_cmd" "${sgmm_group_extra_opts[@]-}" $numLeavesSGMM $numGaussSGMM \
-  #  data/train data/lang exp/tri5_ali_filtered exp/ubm5_filtered/final.ubm exp/sgmm5_filtered
+  #  data/train_filtered data/lang exp/tri5_ali_filtered exp/ubm5_filtered/final.ubm exp/sgmm5_filtered
   touch exp/sgmm5_filtered/.done
 fi
 
@@ -184,7 +185,7 @@ if [ ! -f exp/sgmm5_ali_filtered/.done ]; then
   steps/align_sgmm2.sh \
     --nj $train_nj --cmd "$train_cmd" --transform-dir exp/tri5_ali_filtered \
     --use-graphs true --use-gselect true \
-    data/train data/lang exp/sgmm5_filtered exp/sgmm5_ali_filtered
+    data/train_filtered data/lang exp/sgmm5_filtered exp/sgmm5_ali_filtered
   touch exp/sgmm5_ali_filtered/.done
 fi
 
@@ -195,7 +196,7 @@ if [ ! -f exp/sgmm5_denlats_filtered/.done ]; then
   steps/make_denlats_sgmm2.sh \
     --nj $train_nj --sub-split $train_nj "${sgmm_denlats_extra_opts[@]}" \
     --beam 10.0 --lattice-beam 6 --cmd "$decode_cmd" --transform-dir exp/tri5_ali_filtered \
-    data/train data/lang exp/sgmm5_ali_filtered exp/sgmm5_denlats_filtered
+    data/train_filtered data/lang exp/sgmm5_ali_filtered exp/sgmm5_denlats_filtered
   touch exp/sgmm5_denlats_filtered/.done
 fi
 
@@ -206,7 +207,7 @@ if [ ! -f exp/sgmm5_mmi_b0.1_filtered/.done ]; then
   steps/train_mmi_sgmm2.sh \
     --cmd "$train_cmd" "${sgmm_mmi_extra_opts[@]}" \
     --zero-if-disjoint true --transform-dir exp/tri5_ali_filtered --boost 0.1 \
-    data/train data/lang exp/sgmm5_ali_filtered exp/sgmm5_denlats_filtered \
+    data/train_filtered data/lang exp/sgmm5_ali_filtered exp/sgmm5_denlats_filtered \
     exp/sgmm5_mmi_b0.1_filtered
   touch exp/sgmm5_mmi_b0.1_filtered/.done
 fi

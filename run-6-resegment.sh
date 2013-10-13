@@ -93,6 +93,8 @@ echo ---------------------------------------------------------------------
 
 sh -x local/run_resegment.sh --nj $my_nj || exit 1
 
+exit 0
+
 if $train_after_reseg; then
   echo ---------------------------------------------------------------------
   echo "Starting (SAT) triphone training after resegmentation in exp/tri5_reseg on" `date`
