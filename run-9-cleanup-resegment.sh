@@ -1,6 +1,6 @@
-#!/bin/bash 
-set -e
-set -o pipefail
+#!/bin/bash
+
+# This is not necessarily the top-level run.sh as it is in other directories.   see README.txt first.
 
 [ ! -f ./lang.conf ] && echo "Language configuration does not exist! Use the configurations in conf/lang/* as a startup" && exit 1
 [ ! -f ./conf/common_vars.sh ] && echo "the file conf/common_vars.sh does not exist!" && exit 1
@@ -8,6 +8,12 @@ set -o pipefail
 . conf/common_vars.sh || exit 1;
 . ./lang.conf || exit 1;
 
+[ -f local.conf ] && . ./local.conf
+
+set -e           #Exit on non-zero return code from any command
+set -o pipefail  #Exit if any of the commands in the pipeline will 
+                 #return non-zero return code
+#set -u           #Fail on an undefined variable
 
 type=dev10h
 dev2shadow=dev10h
@@ -19,12 +25,16 @@ skip_stt=false
 max_states=150000
 wip=0.5
 stage=-10
+train_after_reseg=false
+
 . utils/parse_options.sh
 
 if [ $# -ne 0 ]; then
   echo "Usage: $(basename $0) --type (dev10h|dev2h|eval|shadow)"
   exit 1
 fi
+
+[ -e exp ] || ln -s "$exp_dir" exp
 
 if [[ "$type" != "dev10h" && "$type" != "dev2h" && "$type" != "eval" && "$type" != "shadow" ]] ; then
   echo "Warning: invalid variable type=${type}, valid values are dev10h|dev2h|eval"
@@ -110,7 +120,7 @@ datadir=data/${type}
 dirid=${type}
 
 if [[ $type == shadow ]] ; then
-  if [ ! -f ${datadir}/.done ]; then
+  if [ ! -f ${datadir}/shadow.done ]; then
     # we expect that the ${dev2shadow} as well as ${eval2shadow} already exist
     if [ ! -f data/${dev2shadow}/.done ]; then
       echo "Error: data/${dev2shadow}/.done does not exist."
@@ -125,7 +135,7 @@ if [[ $type == shadow ]] ; then
 
     local/create_shadow_dataset.sh ${datadir} data/${dev2shadow} data/${eval2shadow}
     utils/fix_data_dir.sh ${datadir}
-    touch ${datadir}/.done
+    touch ${datadir}/shadow.done
   fi
   my_nj=$eval_nj
 else
@@ -225,30 +235,181 @@ if ! $skip_kws  && [ ! -f ${datadir}/kws/.done ] ; then
   fi
 fi
 
+echo ---------------------------------------------------------------------
+echo "Resegment data in data_filtered_reseg on " `date`
+echo ---------------------------------------------------------------------
+
+sh -x local/run_filter_resegment.sh --nj $my_nj || exit 1
+
+datadir=data_filtered_reseg/${type}
+
+#####################################################################
+#
+# resegmented data directory preparation
+#
+#####################################################################
+echo ---------------------------------------------------------------------
+echo "Preparing ${type} kws data files in ${datadir} on" `date`
+echo ---------------------------------------------------------------------
+if ! $skip_kws  && [ ! -f ${datadir}/kws/.done ] ; then
+  if [[ $type == shadow ]]; then
+    
+    # we expect that the ${dev2shadow} as well as ${eval2shadow} already exist
+    if [ ! -f data_filtered_reseg/${dev2shadow}/kws/.done ]; then
+      echo "Error: data/${dev2shadow}/kws/.done does not exist."
+      echo "Create the directory data/${dev2shadow} first, by calling $0 --type $dev2shadow --dataonly"
+      exit 1
+    fi
+    if [ ! -f data_filtered_reseg/${eval2shadow}/kws/.done ]; then
+      echo "Error: data/${eval2shadow}/kws/.done does not exist."
+      echo "Create the directory data/${eval2shadow} first, by calling $0 --type $eval2shadow --dataonly"
+      exit 1
+    fi
+
+
+    local/kws_data_prep.sh --case_insensitive $case_insensitive \
+      "${icu_opt[@]}" \
+      data/lang ${datadir} ${datadir}/kws || exit 1
+    utils/fix_data_dir.sh ${datadir} || exit 1
+
+    touch ${datadir}/kws/.done
+  else
+    kws_flags=()
+    if [ ! -z $my_rttm_file ] ; then
+      kws_flags+=(--rttm-file $my_rttm_file )
+    fi
+    if [ $my_subset_ecf ] ; then
+      kws_flags+=(--subset-ecf $my_data_list)
+    fi
+    
+    local/kws_setup.sh --case_insensitive $case_insensitive \
+      "${kws_flags[@]}" "${icu_opt[@]}" \
+      $my_ecf_file $my_kwlist_file data/lang ${datadir}
+
+    touch ${datadir}/kws/.done
+  fi
+fi
+
+
 if $data_only ; then
   echo "Exiting, as data-only was requested..."
   exit 0;
 fi
+
+if $train_after_reseg; then
+  echo ---------------------------------------------------------------------
+  echo "Starting (SAT) triphone training after resegmentation in exp/tri5_filtered_reseg on" `date`
+  echo ---------------------------------------------------------------------
+
+  if [ ! -f exp/tri5_filtered_reseg/.done ]; then
+    steps/align_si.sh \
+      --boost-silence $boost_sil --nj $train_nj --cmd "$train_cmd" \
+      data_filtered_reseg/train data/lang exp/tri4_filtered exp/tri4_ali_filtered_reseg
+    steps/train_sat.sh \
+      --boost-silence $boost_sil --cmd "$train_cmd" \
+      $numLeavesSAT $numGaussSAT data_filtered_reseg/train data/lang exp/tri4_ali_filtered_reseg exp/tri5_filtered_reseg
+    touch exp/tri5_filtered_reseg/.done
+  fi
+
+  ################################################################################
+  # Ready to start SGMM training
+  ################################################################################
+
+  if [ ! -f exp/tri5_ali_filtered_reseg/.done ]; then
+    echo ---------------------------------------------------------------------
+    echo "Starting exp/tri5_ali_filtered_reseg on" `date`
+    echo ---------------------------------------------------------------------
+    steps/align_fmllr.sh \
+      --boost-silence $boost_sil --nj $train_nj --cmd "$train_cmd" \
+      data_filtered_reseg/train data/lang exp/tri5_filtered_reseg exp/tri5_ali_filtered_reseg
+    touch exp/tri5_ali_filtered_reseg/.done
+  fi
+
+  if [ ! -f exp/ubm5_filtered_reseg/.done ]; then
+    echo ---------------------------------------------------------------------
+    echo "Starting exp/ubm5_filtered_reseg on" `date`
+    echo ---------------------------------------------------------------------
+    steps/train_ubm.sh \
+      --cmd "$train_cmd" $numGaussUBM \
+      data_filtered_reseg/train data/lang exp/tri5_ali_filtered_reseg exp/ubm5_filtered_reseg
+    touch exp/ubm5_filtered_reseg/.done
+  fi
+
+  if [ ! -f exp/sgmm5_filtered_reseg/.done ]; then
+    echo ---------------------------------------------------------------------
+    echo "Starting exp/sgmm5_filtered_reseg on" `date`
+    echo ---------------------------------------------------------------------
+    steps/train_sgmm2.sh \
+      --cmd "$train_cmd" $numLeavesSGMM $numGaussSGMM \
+      data_filtered_reseg/train data/lang exp/tri5_ali_filtered_reseg exp/ubm5_filtered_reseg/final.ubm exp/sgmm5_filtered_reseg
+    #steps/train_sgmm2_group.sh \
+      #  --cmd "$train_cmd" "${sgmm_group_extra_opts[@]-}" $numLeavesSGMM $numGaussSGMM \
+      #  data_filtered_reseg/train data/lang exp/tri5_ali_filtered_reseg exp/ubm5_filtered_reseg/final.ubm exp/sgmm5_filtered_reseg
+    touch exp/sgmm5_filtered_reseg/.done
+  fi
+
+  ################################################################################
+  # Ready to start discriminative SGMM training
+  ################################################################################
+
+  if [ ! -f exp/sgmm5_ali_filtered_reseg/.done ]; then
+    echo ---------------------------------------------------------------------
+    echo "Starting exp/sgmm5_ali_filtered_reseg on" `date`
+    echo ---------------------------------------------------------------------
+    steps/align_sgmm2.sh \
+      --nj $train_nj --cmd "$train_cmd" --transform-dir exp/tri5_ali_filtered_reseg \
+      --use-graphs true --use-gselect true \
+      data_filtered_reseg/train data/lang exp/sgmm5_filtered_reseg exp/sgmm5_ali_filtered_reseg
+    touch exp/sgmm5_ali_filtered_reseg/.done
+  fi
+
+  if [ ! -f exp/sgmm5_denlats_filtered_reseg/.done ]; then
+    echo ---------------------------------------------------------------------
+    echo "Starting exp/sgmm5_denlats_filtered_reseg on" `date`
+    echo ---------------------------------------------------------------------
+    steps/make_denlats_sgmm2.sh \
+      --nj $train_nj --sub-split $train_nj "${sgmm_denlats_extra_opts[@]}" \
+      --beam 10.0 --lattice-beam 6 --cmd "$decode_cmd" --transform-dir exp/tri5_ali_filtered_reseg \
+      data_filtered_reseg/train data/lang exp/sgmm5_ali_filtered_reseg exp/sgmm5_denlats_filtered_reseg
+    touch exp/sgmm5_denlats_filtered_reseg/.done
+  fi
+
+  if [ ! -f exp/sgmm5_mmi_b0.1_filtered_reseg/.done ]; then
+    echo ---------------------------------------------------------------------
+    echo "Starting exp/sgmm5_mmi_b0.1_filtered_reseg on" `date`
+    echo ---------------------------------------------------------------------
+    steps/train_mmi_sgmm2.sh \
+      --cmd "$train_cmd" "${sgmm_mmi_extra_opts[@]}" \
+      --zero-if-disjoint true --transform-dir exp/tri5_ali_filtered_reseg --boost 0.1 \
+      data_filtered_reseg/train data/lang exp/sgmm5_ali_filtered_reseg exp/sgmm5_denlats_filtered_reseg \
+      exp/sgmm5_mmi_b0.1_filtered_reseg
+    touch exp/sgmm5_mmi_b0.1_filtered_reseg/.done
+  fi
+fi
+
 
 ####################################################################
 ##
 ## FMLLR decoding 
 ##
 ####################################################################
-decode=exp/tri5_filtered/decode_${dirid}
+tri5=tri5_filtered
+$train_after_reseg && tri5=tri5_filtered_reseg
+decode=exp/${tri5}/decode_${dirid}_reseg
+
 if [ ! -f ${decode}/.done ]; then
   echo ---------------------------------------------------------------------
   echo "Spawning decoding with SAT models  on" `date`
   echo ---------------------------------------------------------------------
   utils/mkgraph.sh \
-    data/lang exp/tri5_filtered exp/tri5_filtered/graph |tee exp/tri5_filtered/mkgraph.log
+    data/lang exp/$tri5 exp/$tri5/graph |tee exp/$tri5/mkgraph.log
 
   mkdir -p $decode
   #By default, we do not care about the lattices for this step -- we just want the transforms
   #Therefore, we will reduce the beam sizes, to reduce the decoding times
   steps/decode_fmllr_extra.sh --skip-scoring true --beam 10 --lattice-beam 4\
     --nj $my_nj --cmd "$decode_cmd" "${decode_extra_opts[@]}"\
-    exp/tri5_filtered/graph ${datadir} ${decode} |tee ${decode}/decode.log
+    exp/$tri5/graph ${datadir} ${decode} |tee ${decode}/decode.log
   touch ${decode}/.done
 fi
 
@@ -267,26 +428,29 @@ fi
 ####################################################################
 ## SGMM2 decoding 
 ####################################################################
-decode=exp/sgmm5_filtered/decode_fmllr_${dirid}
+sgmm5=sgmm5_filtered
+$train_after_reseg && sgmm5=sgmm5_filtered_reseg
+decode=exp/${sgmm5}/decode_fmllr_${dirid}_reseg
+
 if [ ! -f $decode/.done ]; then
   echo ---------------------------------------------------------------------
   echo "Spawning $decode on" `date`
   echo ---------------------------------------------------------------------
   utils/mkgraph.sh \
-    data/lang exp/sgmm5_filtered exp/sgmm5_filtered/graph |tee exp/sgmm5_filtered/mkgraph.log
+    data/lang exp/$sgmm5 exp/$sgmm5/graph |tee exp/$sgmm5/mkgraph.log
 
   mkdir -p $decode
   steps/decode_sgmm2.sh --skip-scoring true --use-fmllr true --nj $my_nj \
-    --cmd "$decode_cmd" --transform-dir exp/tri5_filtered/decode_${dirid} "${decode_extra_opts[@]}"\
-    exp/sgmm5_filtered/graph ${datadir} $decode |tee $decode/decode.log
+    --cmd "$decode_cmd" --transform-dir exp/${tri5}/decode_${dirid}_reseg "${decode_extra_opts[@]}"\
+    exp/$sgmm5/graph ${datadir} $decode |tee $decode/decode.log
   touch $decode/.done
-fi
 
-if ! $fast_path ; then
-  local/run_kws_stt_task.sh --cer $cer --max-states $max_states \
-    --cmd "$decode_cmd" --skip-kws $skip_kws --skip-stt $skip_stt --wip $wip \
-    "${shadow_set_extra_opts[@]}" "${lmwt_plp_extra_opts[@]}" \
-    ${datadir} data/lang  exp/sgmm5_filtered/decode_fmllr_${dirid}
+  if ! $fast_path ; then
+    local/run_kws_stt_task.sh --cer $cer --max-states $max_states \
+      --cmd "$decode_cmd" --skip-kws $skip_kws --skip-stt $skip_stt --wip $wip \
+      "${shadow_set_extra_opts[@]}" "${lmwt_plp_extra_opts[@]}" \
+      ${datadir} data/lang ${decode}
+  fi
 fi
 
 ####################################################################
@@ -297,48 +461,43 @@ fi
 
 for iter in 1 2 3 4; do
   # Decode SGMM+MMI (via rescoring).
-  decode=exp/sgmm5_mmi_b0.1_filtered/decode_fmllr_${dirid}_it$iter
+  sgmm5_mmi_b0_1=sgmm5_mmi_b0.1_filtered
+  $train_after_reseg && sgmm5_mmi_b0_1=sgmm5_mmi_b0.1_filtered_reseg
+  decode=exp/${sgmm5_mmi_b0_1}/decode_fmllr_${dirid}_it${iter}_reseg
   if [ ! -f $decode/.done ]; then
 
     mkdir -p $decode
     steps/decode_sgmm2_rescore.sh  --skip-scoring true \
-      --cmd "$decode_cmd" --iter $iter --transform-dir exp/tri5_filtered/decode_${dirid} \
-      data/lang ${datadir} exp/sgmm5_filtered/decode_fmllr_${dirid} $decode | tee ${decode}/decode.log
+      --cmd "$decode_cmd" --iter $iter --transform-dir exp/$tri5/decode_${dirid}_reseg \
+      data/lang ${datadir} exp/$sgmm5/decode_fmllr_${dirid}_reseg $decode | tee ${decode}/decode.log
 
     touch $decode/.done
   fi
+    
+    #We are done -- all lattices has been generated. We have to
+    #a)Run MBR decoding
+    #b)Run KW search
+    local/run_kws_stt_task.sh --cer $cer --max-states $max_states \
+      --cmd "$decode_cmd" --skip-kws $skip_kws --skip-stt $skip_stt --wip $wip \
+      "${shadow_set_extra_opts[@]}" "${lmwt_plp_extra_opts[@]}" \
+      ${datadir} data/lang $decode
 done
-
-#We are done -- all lattices has been generated. We have to
-#a)Run MBR decoding
-#b)Run KW search
-for iter in 1 2 3 4; do
-  # Decode SGMM+MMI (via rescoring).
-  decode=exp/sgmm5_mmi_b0.1_filtered/decode_fmllr_${dirid}_it$iter
-  local/run_kws_stt_task.sh --cer $cer --max-states $max_states \
-    --cmd "$decode_cmd" --skip-kws $skip_kws --skip-stt $skip_stt --wip $wip \
-    "${shadow_set_extra_opts[@]}" "${lmwt_plp_extra_opts[@]}" \
-    ${datadir} data/lang $decode
-done
-
-exit 0
-exit 0
 
 ####################################################################
 ##
-## DNN decoding (NOT CODED YET)
+## DNN decoding
 ##
 ####################################################################
-if [ -f exp/tri6_nnet/.done ]; then
-  decode=exp/tri6_nnet/decode_${dirid}
-  if [ ! -f $decode/.done ]; then
-    steps/decode_nnet_cpu.sh --cmd "$decode_cmd" --nj $my_nj \
-      --skip-scoring true "${decode_extra_opts[@]}" \
-      --transform-dir exp/tri5_filtered/decode_${dirid} \
-      exp/tri5_filtered/graph ${datadir} $decode |tee $decode/decode.log
+tri6_nnet=tri6_nnet_filtered
+$train_after_reseg && tri6_nnet=tri6_nnet_filtered_reseg
+decode=exp/$tri6_nnet/decode_${dirid}_reseg
 
-    touch $decode/.done
-  fi
+if [ -f $decode/.done ]; then
+  steps/decode_nnet_cpu.sh --cmd "$decode_cmd" --nj $my_nj \
+    --skip-scoring true "${decode_extra_opts[@]}" \
+    --transform-dir exp/$tri6_nnet/decode_${dirid}_reseg \
+    exp/$tri6_nnet/graph ${datadir} $decode |tee $decode/decode.log
+  touch $decode/.done
 
   local/run_kws_stt_task.sh --cer $cer --max-states $max_states \
     --cmd "$decode_cmd" --skip-kws $skip_kws --skip-stt $skip_stt --wip $wip \
@@ -347,4 +506,9 @@ if [ -f exp/tri6_nnet/.done ]; then
 fi
 
 echo "Everything looking good...." 
+
+echo ---------------------------------------------------------------------
+echo "Finished successfully on" `date`
+echo ---------------------------------------------------------------------
+
 exit 0

@@ -25,7 +25,6 @@ if [[ ! -f data/train_filtered/utt2spk ]]; then
   echo ---------------------------------------------------------------------
   steps/discriminative_data_cleanup.sh --cmd "$decode_cmd" --threshold $threshold exp/sgmm5_denlats data/train || exit 1
 fi
-exit 
 
 if [[ ! -f data/train_filtered/glm || data/train_filtered/glm -ot "$glmFile" ]]; then
   echo ---------------------------------------------------------------------

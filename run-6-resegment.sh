@@ -47,6 +47,39 @@ else
   shadow_set_extra_opts=()
 fi
 
+function make_plp {
+  t=$1
+  use_pitch=false
+  use_ffv=false
+
+  if [ "$use_pitch" = "false" ] && [ "$use_ffv" = "false" ]; then
+   steps/make_plp.sh --cmd "$decode_cmd" --nj $my_nj data/${t} exp/make_plp/${t} plp
+  elif [ "$use_pitch" = "true" ] && [ "$use_ffv" = "true" ]; then
+    cp -rT data/${t} data/${t}_plp; cp -rT data/${t} data/${t}_pitch; cp -rT data/${t} data/${t}_ffv
+    steps/make_plp.sh --cmd "$decode_cmd" --nj $my_nj data/${t}_plp exp/make_plp/${t} plp_tmp_${t}
+    local/make_pitch.sh --cmd "$decode_cmd" --nj $my_nj data/${t}_pitch exp/make_pitch/${t} pitch_tmp_${t}
+    local/make_ffv.sh --cmd "$decode_cmd"  --nj $my_nj data/${t}_ffv exp/make_ffv/${t} ffv_tmp_${t}
+    steps/append_feats.sh --cmd "$decode_cmd" --nj $my_nj data/${t}{_plp,_pitch,_plp_pitch} exp/make_pitch/append_${t}_pitch plp_tmp_${t}
+    steps/append_feats.sh --cmd "$decode_cmd" --nj $my_nj data/${t}{_plp_pitch,_ffv,} exp/make_ffv/append_${t}_pitch_ffv plp
+    rm -rf {plp,pitch,ffv}_tmp_${t} data/${t}_{plp,pitch,plp_pitch}
+  elif [ "$use_pitch" = "true" ]; then
+    cp -rT data/${t} data/${t}_plp; cp -rT data/${t} data/${t}_pitch
+    steps/make_plp.sh --cmd "$decode_cmd" --nj $my_nj data/${t}_plp exp/make_plp/${t} plp_tmp_${t}
+    local/make_pitch.sh --cmd "$decode_cmd" --nj $my_nj data/${t}_pitch exp/make_pitch/${t} pitch_tmp_${t}
+    steps/append_feats.sh --cmd "$decode_cmd" --nj $my_nj data/${t}{_plp,_pitch,} exp/make_pitch/append_${t} plp
+    rm -rf {plp,pitch}_tmp_${t} data/${t}_{plp,pitch}
+  elif [ "$use_ffv" = "true" ]; then
+    cp -rT data/${t} data/${t}_plp; cp -rT data/${t} data/${t}_ffv
+    steps/make_plp.sh --cmd "$decode_cmd" --nj $my_nj data/${t}_plp exp/make_plp/${t} plp_tmp_${t}
+    local/make_ffv.sh --cmd "$decode_cmd" --nj $my_nj data/${t}_ffv exp/make_ffv/${t} ffv_tmp_${t}
+    steps/append_feats.sh --cmd "$decode_cmd" --nj $my_nj data/${t}{_plp,_ffv,} exp/make_ffv/append_${t} plp
+    rm -rf {plp,ffv}_tmp_${t} data/${t}_{plp,ffv}
+  fi
+
+  steps/compute_cmvn_stats.sh data/${t} exp/make_plp/${t} plp
+  utils/fix_data_dir.sh data/${t}
+}
+
 if [ ${type} == shadow ] ; then
   mandatory_variables=""
   optional_variables=""
@@ -83,9 +116,124 @@ for variable in $option_variables ; do
   echo "$variable=$my_variable"
 done
 
-datadir=data_reseg/${type}
+datadir=data/${type}
 dirid=${type}
 
+if [[ $type == shadow ]] ; then
+  if [ ! -f ${datadir}/shadow.done ]; then
+    # we expect that the ${dev2shadow} as well as ${eval2shadow} already exist
+    if [ ! -f data/${dev2shadow}/.done ]; then
+      echo "Error: data/${dev2shadow}/.done does not exist."
+      echo "Create the directory data/${dev2shadow} first, by calling $0 --type $dev2shadow --dataonly"
+      exit 1
+    fi
+    if [ ! -f data/${eval2shadow}/.done ]; then
+      echo "Error: data/${eval2shadow}/.done does not exist."
+      echo "Create the directory data/${eval2shadow} first, by calling $0 --type $eval2shadow --dataonly"
+      exit 1
+    fi
+
+    local/create_shadow_dataset.sh ${datadir} data/${dev2shadow} data/${eval2shadow}
+    utils/fix_data_dir.sh ${datadir}
+    touch ${datadir}/shadow.done
+  fi
+  my_nj=$eval_nj
+else
+  if [ ! -d data/raw_${type}_data ]; then
+    echo ---------------------------------------------------------------------
+    echo "Subsetting the ${type} set"
+    echo ---------------------------------------------------------------------
+    
+    local/make_corpus_subset.sh "$my_data_dir" "$my_data_list" ./data/raw_${type}_data
+  fi
+  my_data_dir=`readlink -f ./data/raw_${type}_data`
+
+  nj_max=`cat $my_data_list | wc -l`
+  if [[ "$nj_max" -lt "$my_nj" ]] ; then
+    echo "The maximum reasonable number of jobs is $nj_max -- you have $my_nj! (The training and decoding process has file-granularity)"
+    exit 1
+    my_nj=$nj_max
+  fi
+
+  if [ ! -f ${datadir}/.done ]; then
+    if [[ ! -f ${datadir}/wav.scp || ${datadir}/wav.scp -ot "$my_data_dir" ]]; then
+      echo ---------------------------------------------------------------------
+      echo "Preparing ${type} data lists in ${datadir} on" `date`
+      echo ---------------------------------------------------------------------
+      mkdir -p ${datadir}
+      local/prepare_acoustic_training_data.pl --fragmentMarkers \-\*\~  \
+        $my_data_dir ${datadir} > ${datadir}/skipped_utts.log || exit 1
+    fi
+
+    echo ---------------------------------------------------------------------
+    echo "Preparing ${type} stm files in ${datadir} on" `date`
+    echo ---------------------------------------------------------------------
+    if [ ! -z $my_stm_file ] ; then
+      local/augment_original_stm.pl $my_stm_file ${datadir}
+    elif [[ $type == shadow || $type == eval ]]; then
+      echo "Not doing anything for the STM file!"
+    else
+      local/prepare_stm.pl --fragmentMarkers \-\*\~ ${datadir}
+    fi
+
+    if [ ! -f ${datadir}/.plp.done ]; then
+      echo ---------------------------------------------------------------------
+      echo "Preparing ${type} parametrization files in ${datadir} on" `date`
+      echo ---------------------------------------------------------------------
+      make_plp ${dirid}
+      touch ${datadir}/.plp.done
+    fi
+
+    touch ${datadir}/.done
+  fi
+fi
+
+#####################################################################
+#
+# data directory preparation
+#
+#####################################################################
+echo ---------------------------------------------------------------------
+echo "Preparing ${type} kws data files in ${datadir} on" `date`
+echo ---------------------------------------------------------------------
+if ! $skip_kws  && [ ! -f ${datadir}/kws/.done ] ; then
+  if [[ $type == shadow ]]; then
+    
+    # we expect that the ${dev2shadow} as well as ${eval2shadow} already exist
+    if [ ! -f data/${dev2shadow}/kws/.done ]; then
+      echo "Error: data/${dev2shadow}/kws/.done does not exist."
+      echo "Create the directory data/${dev2shadow} first, by calling $0 --type $dev2shadow --dataonly"
+      exit 1
+    fi
+    if [ ! -f data/${eval2shadow}/kws/.done ]; then
+      echo "Error: data/${eval2shadow}/kws/.done does not exist."
+      echo "Create the directory data/${eval2shadow} first, by calling $0 --type $eval2shadow --dataonly"
+      exit 1
+    fi
+
+
+    local/kws_data_prep.sh --case_insensitive $case_insensitive \
+      "${icu_opt[@]}" \
+      data/lang ${datadir} ${datadir}/kws
+    utils/fix_data_dir.sh ${datadir}
+
+    touch ${datadir}/kws/.done
+  else
+    kws_flags=()
+    if [ ! -z $my_rttm_file ] ; then
+      kws_flags+=(--rttm-file $my_rttm_file )
+    fi
+    if [ $my_subset_ecf ] ; then
+      kws_flags+=(--subset-ecf $my_data_list)
+    fi
+    
+    local/kws_setup.sh --case_insensitive $case_insensitive \
+      "${kws_flags[@]}" "${icu_opt[@]}" \
+      $my_ecf_file $my_kwlist_file data/lang ${datadir}
+
+    touch ${datadir}/kws/.done
+  fi
+fi
 
 echo ---------------------------------------------------------------------
 echo "Resegment data in data_reseg on " `date`
@@ -93,7 +241,12 @@ echo ---------------------------------------------------------------------
 
 sh -x local/run_resegment.sh --nj $my_nj || exit 1
 
-exit 0
+if $data_only ; then
+  echo "Exiting, as data-only was requested..."
+  exit 0;
+fi
+
+datadir=data_reseg/${type}
 
 if $train_after_reseg; then
   echo ---------------------------------------------------------------------
@@ -186,126 +339,6 @@ if $train_after_reseg; then
   fi
 fi
 
-if [[ $type == shadow ]] ; then
-  if [ ! -f ${datadir}/shadow.done ]; then
-    # we expect that the ${dev2shadow} as well as ${eval2shadow} already exist
-    if [ ! -f data_reseg/${dev2shadow}/.done ]; then
-      echo "Error: data_reseg/${dev2shadow}/.done does not exist."
-      echo "Create the directory data_reseg/${dev2shadow} first, by calling $0 --type $dev2shadow --dataonly"
-      exit 1
-    fi
-    if [ ! -f data_reseg/${eval2shadow}/.done ]; then
-      echo "Error: data_reseg/${eval2shadow}/.done does not exist."
-      echo "Create the directory data_reseg/${eval2shadow} first, by calling $0 --type $eval2shadow --dataonly"
-      exit 1
-    fi
-
-    local/create_shadow_dataset.sh ${datadir} data_reseg/${dev2shadow} data_reseg/${eval2shadow}
-    utils/fix_data_dir.sh ${datadir}
-    touch ${datadir}/shadow.done
-  fi
-  my_nj=$eval_nj
-else
-  if [ ! -d data_reseg/raw_${type}_data ]; then
-    echo ---------------------------------------------------------------------
-    echo "Subsetting the ${type} set"
-    echo ---------------------------------------------------------------------
-    
-    local/make_corpus_subset.sh "$my_data_dir" "$my_data_list" ./data_reseg/raw_${type}_data
-  fi
-  my_data_dir=`readlink -f ./data_reseg/raw_${type}_data`
-
-  nj_max=`cat $my_data_list | wc -l`
-  if [[ "$nj_max" -lt "$my_nj" ]] ; then
-    echo "The maximum reasonable number of jobs is $nj_max -- you have $my_nj! (The training and decoding process has file-granularity)"
-    exit 1
-    my_nj=$nj_max
-  fi
-
-  if [ ! -f ${datadir}/.done ]; then
-    #if [[ ! -f ${datadir}/wav.scp || ${datadir}/wav.scp -ot "$my_data_dir" ]]; then
-    #  echo ---------------------------------------------------------------------
-    #  echo "Preparing ${type} data lists in ${datadir} on" `date`
-    #  echo ---------------------------------------------------------------------
-    #  mkdir -p ${datadir}
-    #  local/prepare_acoustic_training_data.pl --fragmentMarkers \-\*\~  \
-    #    $my_data_dir ${datadir} > ${datadir}/skipped_utts.log || exit 1
-    #fi
-
-    echo ---------------------------------------------------------------------
-    echo "Preparing ${type} stm files in ${datadir} on" `date`
-    echo ---------------------------------------------------------------------
-    if [ ! -z $my_stm_file ] ; then
-      local/augment_original_stm.pl $my_stm_file ${datadir}
-    elif [[ $type == shadow || $type == eval ]]; then
-      echo "Not doing anything for the STM file!"
-    else
-      local/prepare_stm.pl --fragmentMarkers \-\*\~ ${datadir}
-    fi
-
-    #if [ ! -f ${datadir}/.plp.done ]; then
-    #  echo ---------------------------------------------------------------------
-    #  echo "Preparing ${type} parametrization files in ${datadir} on" `date`
-    #  echo ---------------------------------------------------------------------
-    #  make_plp ${dirid}
-    #  touch ${datadir}/.plp.done
-    #fi
-
-    touch ${datadir}/.done
-  fi
-fi
-
-#####################################################################
-#
-# data directory preparation
-#
-#####################################################################
-echo ---------------------------------------------------------------------
-echo "Preparing ${type} kws data files in ${datadir} on" `date`
-echo ---------------------------------------------------------------------
-if ! $skip_kws  && [ ! -f ${datadir}/kws/.done ] ; then
-  if [[ $type == shadow ]]; then
-    
-    # we expect that the ${dev2shadow} as well as ${eval2shadow} already exist
-    if [ ! -f data_reseg/${dev2shadow}/kws/.done ]; then
-      echo "Error: data_reseg/${dev2shadow}/kws/.done does not exist."
-      echo "Create the directory data_reseg/${dev2shadow} first, by calling $0 --type $dev2shadow --dataonly"
-      exit 1
-    fi
-    if [ ! -f data_reseg/${eval2shadow}/kws/.done ]; then
-      echo "Error: data_reseg/${eval2shadow}/kws/.done does not exist."
-      echo "Create the directory data_reseg/${eval2shadow} first, by calling $0 --type $eval2shadow --dataonly"
-      exit 1
-    fi
-
-
-    local/kws_data_prep.sh --case_insensitive $case_insensitive \
-      "${icu_opt[@]}" \
-      data/lang ${datadir} ${datadir}/kws
-    utils/fix_data_dir.sh ${datadir}
-
-    touch ${datadir}/kws/.done
-  else
-    kws_flags=()
-    if [ ! -z $my_rttm_file ] ; then
-      kws_flags+=(--rttm-file $my_rttm_file )
-    fi
-    if [ $my_subset_ecf ] ; then
-      kws_flags+=(--subset-ecf $my_data_list)
-    fi
-    
-    local/kws_setup.sh --case_insensitive $case_insensitive \
-      "${kws_flags[@]}" "${icu_opt[@]}" \
-      $my_ecf_file $my_kwlist_file data/lang ${datadir}
-
-    touch ${datadir}/kws/.done
-  fi
-fi
-
-if $data_only ; then
-  echo "Exiting, as data-only was requested..."
-  exit 0;
-fi
 
 ####################################################################
 ##
