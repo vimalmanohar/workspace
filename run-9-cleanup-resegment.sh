@@ -26,6 +26,7 @@ max_states=150000
 wip=0.5
 stage=-10
 train_after_reseg=false
+segmentation_opts="--remove-noise-only-segments false --split-on-noise-transitions true" 
 
 . utils/parse_options.sh
 
@@ -239,13 +240,12 @@ echo ---------------------------------------------------------------------
 echo "Resegment data in data_filtered_reseg on " `date`
 echo ---------------------------------------------------------------------
 
-sh -x local/run_filter_resegment.sh --nj $my_nj || exit 1
+sh -x local/run_filter_resegment.sh --nj $my_nj --segmentation-opts "$segmentation_opts" || exit 1
 
 datadir=data_filtered_reseg/${type}
-
 #####################################################################
 #
-# resegmented data directory preparation
+# data directory preparation
 #
 #####################################################################
 echo ---------------------------------------------------------------------
@@ -256,21 +256,21 @@ if ! $skip_kws  && [ ! -f ${datadir}/kws/.done ] ; then
     
     # we expect that the ${dev2shadow} as well as ${eval2shadow} already exist
     if [ ! -f data_filtered_reseg/${dev2shadow}/kws/.done ]; then
-      echo "Error: data/${dev2shadow}/kws/.done does not exist."
-      echo "Create the directory data/${dev2shadow} first, by calling $0 --type $dev2shadow --dataonly"
+      echo "Error: data_filtered_reseg/${dev2shadow}/kws/.done does not exist."
+      echo "Create the directory data_filtered_reseg/${dev2shadow} first, by calling $0 --type $dev2shadow --dataonly"
       exit 1
     fi
     if [ ! -f data_filtered_reseg/${eval2shadow}/kws/.done ]; then
-      echo "Error: data/${eval2shadow}/kws/.done does not exist."
-      echo "Create the directory data/${eval2shadow} first, by calling $0 --type $eval2shadow --dataonly"
+      echo "Error: data_filtered_reseg/${eval2shadow}/kws/.done does not exist."
+      echo "Create the directory data_filtered_reseg/${eval2shadow} first, by calling $0 --type $eval2shadow --dataonly"
       exit 1
     fi
 
 
     local/kws_data_prep.sh --case_insensitive $case_insensitive \
       "${icu_opt[@]}" \
-      data/lang ${datadir} ${datadir}/kws || exit 1
-    utils/fix_data_dir.sh ${datadir} || exit 1
+      data/lang ${datadir} ${datadir}/kws
+    utils/fix_data_dir.sh ${datadir}
 
     touch ${datadir}/kws/.done
   else
@@ -289,7 +289,6 @@ if ! $skip_kws  && [ ! -f ${datadir}/kws/.done ] ; then
     touch ${datadir}/kws/.done
   fi
 fi
-
 
 if $data_only ; then
   echo "Exiting, as data-only was requested..."
@@ -474,13 +473,13 @@ for iter in 1 2 3 4; do
     touch $decode/.done
   fi
     
-    #We are done -- all lattices has been generated. We have to
-    #a)Run MBR decoding
-    #b)Run KW search
-    local/run_kws_stt_task.sh --cer $cer --max-states $max_states \
-      --cmd "$decode_cmd" --skip-kws $skip_kws --skip-stt $skip_stt --wip $wip \
-      "${shadow_set_extra_opts[@]}" "${lmwt_plp_extra_opts[@]}" \
-      ${datadir} data/lang $decode
+  #We are done -- all lattices has been generated. We have to
+  #a)Run MBR decoding
+  #b)Run KW search
+  sh -x local/run_kws_stt_task.sh --cer $cer --max-states $max_states \
+    --cmd "$decode_cmd" --skip-kws $skip_kws --skip-stt $skip_stt --wip $wip \
+    "${shadow_set_extra_opts[@]}" "${lmwt_plp_extra_opts[@]}" \
+    ${datadir} data/lang $decode || exit 1
 done
 
 ####################################################################
@@ -497,12 +496,12 @@ if [ -f $decode/.done ]; then
     --skip-scoring true "${decode_extra_opts[@]}" \
     --transform-dir exp/$tri6_nnet/decode_${dirid}_reseg \
     exp/$tri6_nnet/graph ${datadir} $decode |tee $decode/decode.log
-  touch $decode/.done
 
   local/run_kws_stt_task.sh --cer $cer --max-states $max_states \
     --cmd "$decode_cmd" --skip-kws $skip_kws --skip-stt $skip_stt --wip $wip \
     "${shadow_set_extra_opts[@]}" "${lmwt_plp_extra_opts[@]}" \
-    ${datadir} data/lang $decode
+    ${datadir} data/lang $decode || exit 1
+  touch $decode/.done
 fi
 
 echo "Everything looking good...." 

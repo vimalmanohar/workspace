@@ -9,7 +9,7 @@
 . ./lang.conf || exit 1;
 
 [ -f local.conf ] && . ./local.conf
-threshold=5
+threshold=15
 
 [ -f ./path.sh ] && . ./path.sh
 . parse_options.sh || exit 1;

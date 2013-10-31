@@ -9,8 +9,8 @@ set -o pipefail
 . ./lang.conf || exit 1;
 
 
-type=dev10h
-dev2shadow=dev10h
+type=dev2h
+dev2shadow=dev2h
 eval2shadow=eval
 data_only=false
 fast_path=true

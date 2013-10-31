@@ -16,7 +16,7 @@ set -o pipefail  #Exit if any of the commands in the pipeline will
 #set -u           #Fail on an undefined variable
 
 mkdir -p data
-[ -e exp ] || ln -s "$exp_dir" exp
+[ -e exp ] || ln -s "$exp_dir" exp || exit 1
 
 #Preparing dev2h and train directories
 if [ ! -d data/raw_train_data ]; then
@@ -173,8 +173,6 @@ if [ ! -f data/train/.plp.done ]; then
   utils/fix_data_dir.sh data/train
   touch data/train/.plp.done
 fi
-
-mkdir -p exp
 
 if [ ! -f data/train_sub3/.done ]; then
   echo ---------------------------------------------------------------------

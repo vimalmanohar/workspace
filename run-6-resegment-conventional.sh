@@ -26,6 +26,7 @@ max_states=150000
 wip=0.5
 stage=-10
 train_after_reseg=false
+segmentation_opts="--remove-noise-only-segments false --split-on-noise-transitions true --hard-max-segment-length 10.0 --max-segment-length 10.0 --min-inter-utt-silence-length 1.5" 
 
 . utils/parse_options.sh
 
@@ -239,14 +240,62 @@ echo ---------------------------------------------------------------------
 echo "Resegment data in data_reseg on " `date`
 echo ---------------------------------------------------------------------
 
-sh -x local/run_resegment_conventional.sh --nj $my_nj || exit 1
+my_nj=10
+sh -x local/run_resegment_conventional.sh --nj $my_nj --type $type --segmentation-opts "$segmentation_opts" || exit 1
+
+datadir=data_reseg/${type}
+
+#####################################################################
+#
+# data directory preparation
+#
+#####################################################################
+echo ---------------------------------------------------------------------
+echo "Preparing ${type} kws data files in ${datadir} on" `date`
+echo ---------------------------------------------------------------------
+if ! $skip_kws  && [ ! -f ${datadir}/kws/.done ] ; then
+  if [[ $type == shadow ]]; then
+    
+    # we expect that the ${dev2shadow} as well as ${eval2shadow} already exist
+    if [ ! -f data/${dev2shadow}/kws/.done ]; then
+      echo "Error: data/${dev2shadow}/kws/.done does not exist."
+      echo "Create the directory data/${dev2shadow} first, by calling $0 --type $dev2shadow --dataonly"
+      exit 1
+    fi
+    if [ ! -f data/${eval2shadow}/kws/.done ]; then
+      echo "Error: data/${eval2shadow}/kws/.done does not exist."
+      echo "Create the directory data/${eval2shadow} first, by calling $0 --type $eval2shadow --dataonly"
+      exit 1
+    fi
+
+
+    local/kws_data_prep.sh --case_insensitive $case_insensitive \
+      "${icu_opt[@]}" \
+      data/lang ${datadir} ${datadir}/kws
+    utils/fix_data_dir.sh ${datadir}
+
+    touch ${datadir}/kws/.done
+  else
+    kws_flags=()
+    if [ ! -z $my_rttm_file ] ; then
+      kws_flags+=(--rttm-file $my_rttm_file )
+    fi
+    if [ $my_subset_ecf ] ; then
+      kws_flags+=(--subset-ecf $my_data_list)
+    fi
+    
+    local/kws_setup.sh --case_insensitive $case_insensitive \
+      "${kws_flags[@]}" "${icu_opt[@]}" \
+      $my_ecf_file $my_kwlist_file data/lang ${datadir}
+
+    touch ${datadir}/kws/.done
+  fi
+fi
 
 if $data_only ; then
   echo "Exiting, as data-only was requested..."
   exit 0;
 fi
-
-datadir=data_reseg/${type}
 
 if $train_after_reseg; then
   echo ---------------------------------------------------------------------
