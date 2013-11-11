@@ -233,13 +233,13 @@ fi
 ## FMLLR decoding 
 ##
 ####################################################################
-decode=exp/tri5/decode_${dirid}
+decode=exp/tri5_whole/decode_${dirid}
 if [ ! -f ${decode}/.done ]; then
   echo ---------------------------------------------------------------------
   echo "Spawning decoding with SAT models  on" `date`
   echo ---------------------------------------------------------------------
   utils/mkgraph.sh \
-    data/lang exp/tri5 exp/tri5/graph |tee exp/tri5/mkgraph.log
+    data/lang exp/tri5_whole exp/tri5_whole/graph |tee exp/tri5_whole/mkgraph.log
 
   mkdir -p $decode
   #By default, we do not care about the lattices for this step -- we just want the transforms
@@ -247,15 +247,14 @@ if [ ! -f ${decode}/.done ]; then
   if $score_intermediate; then
     steps/decode_fmllr_extra.sh --skip-scoring false \
       --nj $my_nj --cmd "$decode_cmd" "${decode_extra_opts[@]}"\
-      exp/tri5/graph ${datadir} ${decode} |tee ${decode}/decode.log
+      exp/tri5_whole/graph ${datadir} ${decode} |tee ${decode}/decode.log
   else
     steps/decode_fmllr_extra.sh --skip-scoring true --beam 10 --lattice-beam 4\
       --nj $my_nj --cmd "$decode_cmd" "${decode_extra_opts[@]}"\
-      exp/tri5/graph ${datadir} ${decode} |tee ${decode}/decode.log
+      exp/tri5_whole/graph ${datadir} ${decode} |tee ${decode}/decode.log
   fi
   touch ${decode}/.done
 fi
-exit 1
 
 if ! $fast_path ; then
   local/run_kws_stt_task.sh --cer $cer --max-states $max_states \
@@ -272,18 +271,18 @@ fi
 ####################################################################
 ## SGMM2 decoding 
 ####################################################################
-decode=exp/sgmm5/decode_fmllr_${dirid}
+decode=exp/sgmm5_whole/decode_fmllr_${dirid}
 if [ ! -f $decode/.done ]; then
   echo ---------------------------------------------------------------------
   echo "Spawning $decode on" `date`
   echo ---------------------------------------------------------------------
   utils/mkgraph.sh \
-    data/lang exp/sgmm5 exp/sgmm5/graph |tee exp/sgmm5/mkgraph.log
+    data/lang exp/sgmm5_whole exp/sgmm5_whole/graph |tee exp/sgmm5_whole/mkgraph.log
 
   mkdir -p $decode
   steps/decode_sgmm2.sh --skip-scoring true --use-fmllr true --nj $my_nj \
-    --cmd "$decode_cmd" --transform-dir exp/tri5/decode_${dirid} "${decode_extra_opts[@]}"\
-    exp/sgmm5/graph ${datadir} $decode |tee $decode/decode.log
+    --cmd "$decode_cmd" --transform-dir exp/tri5_whole/decode_${dirid} "${decode_extra_opts[@]}"\
+    exp/sgmm5_whole/graph ${datadir} $decode |tee $decode/decode.log
   touch $decode/.done
 fi
 
@@ -291,7 +290,7 @@ if ! $fast_path ; then
   local/run_kws_stt_task.sh --cer $cer --max-states $max_states \
     --cmd "$decode_cmd" --skip-kws $skip_kws --skip-stt $skip_stt --wip $wip \
     "${shadow_set_extra_opts[@]}" "${lmwt_plp_extra_opts[@]}" \
-    ${datadir} data/lang  exp/sgmm5/decode_fmllr_${dirid}
+    ${datadir} data/lang  exp/sgmm5_whole/decode_fmllr_${dirid}
 fi
 
 ####################################################################
@@ -302,13 +301,13 @@ fi
 
 for iter in 1 2 3 4; do
   # Decode SGMM+MMI (via rescoring).
-  decode=exp/sgmm5_mmi_b0.1/decode_fmllr_${dirid}_it$iter
+  decode=exp/sgmm5_whole_mmi_b0.1/decode_fmllr_${dirid}_it$iter
   if [ ! -f $decode/.done ]; then
 
     mkdir -p $decode
     steps/decode_sgmm2_rescore.sh  --skip-scoring true \
-      --cmd "$decode_cmd" --iter $iter --transform-dir exp/tri5/decode_${dirid} \
-      data/lang ${datadir} exp/sgmm5/decode_fmllr_${dirid} $decode | tee ${decode}/decode.log
+      --cmd "$decode_cmd" --iter $iter --transform-dir exp/tri5_whole/decode_${dirid} \
+      data/lang ${datadir} exp/sgmm5_whole/decode_fmllr_${dirid} $decode | tee ${decode}/decode.log
 
     touch $decode/.done
   fi
@@ -319,7 +318,7 @@ done
 #b)Run KW search
 for iter in 1 2 3 4; do
   # Decode SGMM+MMI (via rescoring).
-  decode=exp/sgmm5_mmi_b0.1/decode_fmllr_${dirid}_it$iter
+  decode=exp/sgmm5_whole_mmi_b0.1/decode_fmllr_${dirid}_it$iter
   local/run_kws_stt_task.sh --cer $cer --max-states $max_states \
     --cmd "$decode_cmd" --skip-kws $skip_kws --skip-stt $skip_stt --wip $wip \
     "${shadow_set_extra_opts[@]}" "${lmwt_plp_extra_opts[@]}" \
@@ -338,8 +337,8 @@ if [ -f exp/tri6_nnet/.done ]; then
   if [ ! -f $decode/.done ]; then
     steps/decode_nnet_cpu.sh --cmd "$decode_cmd" --nj $my_nj \
       --skip-scoring true "${decode_extra_opts[@]}" \
-      --transform-dir exp/tri5/decode_${dirid} \
-      exp/tri5/graph ${datadir} $decode |tee $decode/decode.log
+      --transform-dir exp/tri5_whole/decode_${dirid} \
+      exp/tri5_whole/graph ${datadir} $decode |tee $decode/decode.log
 
     touch $decode/.done
   fi
