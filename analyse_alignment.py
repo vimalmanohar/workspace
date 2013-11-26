@@ -37,66 +37,54 @@ class Analysis:
   def write(self, file_handle = sys.stdout):
     for i in range(0, self.N):
       self.true_count[i] = sum(self.confusion_matrix[i])
+      if self.true_count[i] == 0:
+        continue
       for j in range(0, self.N):
-        if self.true_count[i] > 0:
-          file_handle.write("%6s classified as %6s: %4d (%2.3f)\n" % (self.inverse_phone_map[i], self.inverse_phone_map[j],  self.confusion_matrix[i][j], float(self.confusion_matrix[i][j]*100)/ self.true_count[i]))
+        if self.confusion_matrix[i][j] == 0:
+          continue
+        file_handle.write("%6s classified as %6s: %4d (%2.3f)\n" % (self.inverse_phone_map[i], self.inverse_phone_map[j],  self.confusion_matrix[i][j], float(self.confusion_matrix[i][j]*100)/ self.true_count[i]))
 
-    #if self.write_length_stats:
-    #  for i in range(0,self.N):
-    #    self.max_length[i]    = max([0]+self.state_count[i])
-    #    self.min_length[i]    = min([10000]+self.state_count[i])
-    #    self.mean_length[i]   = mean(self.state_count[i])
-    #    try:
-    #      self.percentile25[i]  = np.percentile(self.state_count[i], 25)
-    #    except ValueError:
-    #      self.percentile25[i] = 0
-    #    try:
-    #      self.percentile50[i]  = np.percentile(self.state_count[i], 50)
-    #    except ValueError:
-    #      self.percentile50[i] = 0
-    #    try:
-    #      self.percentile75[i]  = np.percentile(self.state_count[i], 75)
-    #    except ValueError:
-    #      self.percentile75[i] = 0
+    if self.write_length_stats:
+      file_handle.write("Lengths of different segments:\n")
+      for i in range(0, self.N):
+        if self.true_count[i] == 0:
+          continue
+        for j in range(0, self.N):
+          if len(self.state_count[i][j]) == 0:
+            continue
+          self.max_length    = max([0]+self.state_count[i][j])
+          self.min_length    = min([10000]+self.state_count[i][j])
+          self.mean_length   = mean(self.state_count[i][j])
+          try:
+            self.percentile25  = np.percentile(self.state_count[i][j], 25)
+          except ValueError:
+            self.percentile25 = 0
+          try:
+            self.percentile50  = np.percentile(self.state_count[i][j], 50)
+          except ValueError:
+            self.percentile50 = 0
+          try:
+            self.percentile75  = np.percentile(self.state_count[i][j], 75)
+          except ValueError:
+            self.percentile75 = 0
 
-    #  file_handle.write("Lengths of different segments:\n")
-    #  file_handle.write("%40s:\n %s\n" % ("Silence classified as Silence",  str(self.state_count[0]) ))
-    #  file_handle.write("%40s:\n %s\n" % ("Silence classified as Noise",    str(self.state_count[1]) ))
-    #  file_handle.write("%40s:\n %s\n" % ("Silence classified as Speech",   str(self.state_count[2]) ))
-    #  file_handle.write("%40s:\n %s\n" % ("Noise classified as Silence",    str(self.state_count[3]) ))
-    #  file_handle.write("%40s:\n %s\n" % ("Noise classified as Noise",      str(self.state_count[4]) ))
-    #  file_handle.write("%40s:\n %s\n" % ("Noise classified as Speech",     str(self.state_count[5]) ))
-    #  file_handle.write("%40s:\n %s\n" % ("Speech classified as Silence",   str(self.state_count[6]) ))
-    #  file_handle.write("%40s:\n %s\n" % ("Speech classified as Noise",     str(self.state_count[7]) ))
-    #  file_handle.write("%40s:\n %s\n" % ("Speech classified as Speech",    str(self.state_count[8]) ))
+          file_handle.write("%6s classified as %6s: \n%s\n" % (self.inverse_phone_map[i], self.inverse_phone_map[j], str(self.state_count[i][j]) ))
+          file_handle.write("%6s classified as %6s: Min: %4d Max: %4d Mean: %4d percentile25: %4d percentile50: %4d percentile75: %4d\n" % (self.inverse_phone_map[i], self.inverse_phone_map[j], self.min_length, self.max_length, self.mean_length, self.percentile25, self.percentile50, self.percentile75))
 
-    #  file_handle.write("%40s: Min: %4d Max: %4d Mean: %4d percentile25: %4d percentile50: %4d percentile75: %4d\n" % ("Silence classified as Silence",  self.min_length[0], self.max_length[0], self.mean_length[0], self.percentile25[0], self.percentile50[0], self.percentile75[0]))
-    #  file_handle.write("%40s: Min: %4d Max: %4d Mean: %4d percentile25: %4d percentile50: %4d percentile75: %4d\n" % ("Silence classified as Noise",    self.min_length[1], self.max_length[1], self.mean_length[1], self.percentile25[1], self.percentile50[1], self.percentile75[1]))
-    #  file_handle.write("%40s: Min: %4d Max: %4d Mean: %4d percentile25: %4d percentile50: %4d percentile75: %4d\n" % ("Silence classified as Speech",   self.min_length[2], self.max_length[2], self.mean_length[2], self.percentile25[2], self.percentile50[2], self.percentile75[2]))
-    #  file_handle.write("%40s: Min: %4d Max: %4d Mean: %4d percentile25: %4d percentile50: %4d percentile75: %4d\n" % ("Noise classified as Silence",    self.min_length[3], self.max_length[3], self.mean_length[3], self.percentile25[3], self.percentile50[3], self.percentile75[3]))
-    #  file_handle.write("%40s: Min: %4d Max: %4d Mean: %4d percentile25: %4d percentile50: %4d percentile75: %4d\n" % ("Noise classified as Noise",      self.min_length[4], self.max_length[4], self.mean_length[4], self.percentile25[4], self.percentile50[4], self.percentile75[4]))
-    #  file_handle.write("%40s: Min: %4d Max: %4d Mean: %4d percentile25: %4d percentile50: %4d percentile75: %4d\n" % ("Noise classified as Speech",     self.min_length[5], self.max_length[5], self.mean_length[5], self.percentile25[5], self.percentile50[5], self.percentile75[5]))
-    #  file_handle.write("%40s: Min: %4d Max: %4d Mean: %4d percentile25: %4d percentile50: %4d percentile75: %4d\n" % ("Speech classified as Silence",   self.min_length[6], self.max_length[6], self.mean_length[6], self.percentile25[6], self.percentile50[6], self.percentile75[6]))
-    #  file_handle.write("%40s: Min: %4d Max: %4d Mean: %4d percentile25: %4d percentile50: %4d percentile75: %4d\n" % ("Speech classified as Noise",     self.min_length[7], self.max_length[7], self.mean_length[7], self.percentile25[7], self.percentile50[7], self.percentile75[7]))
-    #  file_handle.write("%40s: Min: %4d Max: %4d Mean: %4d percentile25: %4d percentile50: %4d percentile75: %4d\n" % ("Speech classified as Speech",    self.min_length[8], self.max_length[8], self.mean_length[8], self.percentile25[8], self.percentile50[8], self.percentile75[8]))
-
-    #if self.write_markers:
-    #  file_handle.write("Start frames of different segments:\n")
-    #  file_handle.write("%40s:\n %s\n" % ("Silence classified as Silence",  str([str(self.markers[0][i])+' ('+ str(self.state_count[0][i])+')' for i in range(0, len(self.state_count[0]))])))
-    #  file_handle.write("%40s:\n %s\n" % ("Silence classified as Noise",    str([str(self.markers[1][i])+' ('+ str(self.state_count[1][i])+')' for i in range(0, len(self.state_count[1]))])))
-    #  file_handle.write("%40s:\n %s\n" % ("Silence classified as Speech",   str([str(self.markers[2][i])+' ('+ str(self.state_count[2][i])+')' for i in range(0, len(self.state_count[2]))])))
-    #  file_handle.write("%40s:\n %s\n" % ("Noise classified as Silence",    str([str(self.markers[3][i])+' ('+ str(self.state_count[3][i])+')' for i in range(0, len(self.state_count[3]))])))
-    #  file_handle.write("%40s:\n %s\n" % ("Noise classified as Noise",      str([str(self.markers[4][i])+' ('+ str(self.state_count[4][i])+')' for i in range(0, len(self.state_count[4]))])))
-    #  file_handle.write("%40s:\n %s\n" % ("Noise classified as Speech",     str([str(self.markers[5][i])+' ('+ str(self.state_count[5][i])+')' for i in range(0, len(self.state_count[5]))])))
-    #  file_handle.write("%40s:\n %s\n" % ("Speech classified as Silence",   str([str(self.markers[6][i])+' ('+ str(self.state_count[6][i])+')' for i in range(0, len(self.state_count[6]))])))
-    #  file_handle.write("%40s:\n %s\n" % ("Speech classified as Noise",     str([str(self.markers[7][i])+' ('+ str(self.state_count[7][i])+')' for i in range(0, len(self.state_count[7]))])))
-    #  file_handle.write("%40s:\n %s\n" % ("Speech classified as Speech",    str([str(self.markers[8][i])+' ('+ str(self.state_count[8][i])+')' for i in range(0, len(self.state_count[8]))])))
+    if self.write_markers:
+      file_handle.write("Start frames of different segments:\n")
+      for i in range(0, self.N):
+        for j in range(0, self.N):
+          if len(self.state_count[i][j]) == 0:
+            continue
+          file_handle.write("%6s classified as %6s: \n%s\n" % (self.inverse_phone_map[i], self.inverse_phone_map[j], str([str(self.markers[i][j][k])+' ('+ str(self.state_count[i][j][k])+')' for k in range(0, len(self.state_count[i][j]))])))
 
 def main():
   parser = ArgumentParser(description='Analyse alignment using force alignment data')
   parser.add_argument('-l','--print-length-stats', dest='write_length_stats', action='store_true', help='Print length of the difference classes')
   parser.add_argument('-m','--print-start-markers', dest='write_markers', action='store_true', help='Print start markers of the difference classes')
   parser.add_argument('-p', '--phones', dest='phone_map_file', default='data/lang/phones.txt', help='Phone map file')
+  parser.add_argument('-r', '--results-dir', dest='results_dir', help='Results dir')
   parser.add_argument('args', nargs=2, help='<reference_dir> <prediction_dir>')
   options = parser.parse_args()
 
@@ -153,6 +141,7 @@ def main():
       this_frame_diff.confusion_matrix[ref][pred] += 1
       if prev_state != state:
         if count > 0:
+          ref, pred = prev_state
           this_frame_diff.state_count[ref][pred].append(count)
           this_frame_diff.markers[ref][pred].append(i-count)
           frame_diff.state_count[ref][pred].append(count)
@@ -162,11 +151,20 @@ def main():
       else:
         count += 1
 
-    sys.stdout.write("\n"+file_id+"\n")
-    this_frame_diff.write()
+    if options.results_dir is None:
+      out_file = sys.stdout
+    else:
+      out_file = open(options.results_dir+"/"+file_id+".align_results", 'w')
+    out_file.write("\n"+file_id+"\n")
+    this_frame_diff.write(out_file)
+    out_file.close()
 
-  sys.stdout.write("\nTOTAL\n")
-  frame_diff.write()
+  if options.results_dir is None:
+    out_file = sys.stdout
+  else:
+    out_file = open(options.results_dir+"/TOTAL"+".align_results", 'w')
+  out_file.write("\nTOTAL\n")
+  frame_diff.write(out_file)
 
 if __name__ == '__main__':
   main()

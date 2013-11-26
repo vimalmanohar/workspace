@@ -7,7 +7,7 @@ set -o pipefail
 # begin configuration section.
 cmd=$decode_cmd
 cleanup=false
-prefix="BABEL_BP_102"
+prefix="BABEL_OP1_102"
 segmentation_opts="--remove-noise-only-segments true --split-on-noise-transitions true" 
 data=
 data_reseg=
@@ -125,7 +125,11 @@ fi
 #./analyse_segmentation.py $dir/ref_classes $dir/classes > $dir/analysis.results
 #./analyse_segmentation.py -l $dir/ref_classes $dir/classes > $dir/analysis.results_withlengths
 ./analyse_segmentation.py -l -m $dir/ref_classes $dir/classes > $dir/analysis.results_withlengths_withmarkers
-./analyse_alignment.py --phones data/lang/phones.txt $dir/ref_align $dir/pred > $dir/align_analysis.results
+./analyse_segmentation_RTTM.py -l -m mitfa.rttm $dir/classes $dir/rttm_classes > $dir/rttm_analysis.results
+mkdir -p $dir/align_results
+for i in $dir/rttm_classes/*.ref; do cat $i; echo ""; done | sort | utils/segmentation2.pl $segmentation_opts > $dir/rttm_segments || exit 1
+./analyse_alignment.py -l -m --results-dir $dir/align_results --phones data/lang/phones.txt $dir/ref_align $dir/pred
 [ ! -z $data ] && ./evaluate_segmentation.pl $data/segments $dir/ref_segments &> $dir/ref_segmentation.diff
 [ ! -z $data ] && [ ! -z $data_reseg ] && ./evaluate_segmentation.pl $data/segments $data_reseg/segments &> $dir/resegmentation.diff
 [ ! -z $data ] && [ ! -z $data_reseg ] && ./evaluate_segmentation.pl $dir/ref_segments $data_reseg/segments &> $dir/ref_resegmentation.diff
+[ ! -z $data_reseg ] && ./evaluate_segmentation.pl $dir/rttm_segments $data_reseg/segments &> $dir/rttm_resegmentation.diff

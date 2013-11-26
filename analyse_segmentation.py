@@ -129,7 +129,7 @@ def main():
   reference = dict([ (f.split('/')[-1][0:-4], []) for f in glob.glob(reference_dir + "/*.ref") ])
   prediction = dict([ (f.split('/')[-1][0:-5], []) for f in glob.glob(prediction_dir + "/*.pred") ])
 
-  pre_file_diff = {}
+  per_file_diff = {}
   frame_diff = Analysis(options)
   frame_diff.write_markers = False
 

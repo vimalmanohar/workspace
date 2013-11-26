@@ -26,8 +26,10 @@ max_states=150000
 wip=0.5
 stage=-10
 train_after_reseg=false
-segmentation_opts="--remove-noise-only-segments true --split-on-noise-transitions true" 
-keep_silence_segments=true
+segmentation_opts="--remove-noise-only-segments true --max-length-diff 0.4 --min-inter-utt-silence-length 1.0" 
+silence_segment_fraction=1.0
+keep_silence_segments=false
+remove_oov=false
 
 . utils/parse_options.sh
 . ./path.sh
@@ -107,7 +109,7 @@ eval my_nj=\$${type}_nj  #for shadow, this will be re-set when appropriate
 
 for variable in $mandatory_variables ; do
   eval my_variable=\$${variable}
-  if [ -z $my_variable ] ; then
+  if [ $type != "train" ] && [ -z $my_variable ] ; then
     echo "Mandatory variable $variable is not set! " \
          "You should probably set the variable in the config file "
     exit 1
@@ -268,10 +270,22 @@ if [[ ! -f data/train_whole/wav.scp || data/train_whole/wav.scp -ot "$train_data
     $train_data_dir data/train_whole > data/train_whole/skipped_utts.log
   mv data/train_whole/text data/train_whole/text_orig
   if $keep_silence_segments; then
-    cat data/train_whole/text_orig | sed 's/^\(.*\)<silence>$/\1/' > data/train_whole/text
+    cat data/train_whole/text_orig | awk '{if (NF == 2 && $2 == "<silence>") {print $1} else {print $0}}' > data/train_whole/text
   else
-    mv data/train_whole/text_orig data/train_whole/text
+    num_silence_segments=$(cat data/train_whole/text_orig | awk '{if (NF == 2 && $2 == "<silence>") {print $0}}' | wc -l)
+    num_keep_silence_segments=`echo $num_silence_segments | python -c "import sys; sys.stdout.write(\"%d\" % (float(sys.stdin.readline().strip()) * "$silence_segment_fraction"))"` 
+    cat data/train_whole/text_orig \
+      | awk 'BEGIN{i=0} \
+      { \
+        if (NF == 2 && $2 == "<silence>") { \
+          if (i<'$num_keep_silence_segments') { \
+            print $1; \
+            i++; \
+          } \
+        } else {print $0}\
+      }' > data/train_whole/text
   fi
+  utils/fix_data_dir.sh data/train_whole
 fi
 
 if [[ ! -f data/train_whole/glm || data/train_whole/glm -ot "$glmFile" ]]; then
@@ -322,7 +336,7 @@ echo ---------------------------------------------------------------------
 echo "Resegment data in data_reseg on " `date`
 echo ---------------------------------------------------------------------
 
-sh -x local/run_resegment_whole.sh --train-nj $train_nj --nj $my_nj --type $type --segmentation_opts "$segmentation_opts" || exit 1
+sh -x local/run_resegment_whole.sh --remove-oov $remove_oov --train-nj $train_nj --nj $my_nj --type $type --segmentation_opts "$segmentation_opts" || exit 1
 
 datadir=data_reseg/${type}
 #####################################################################
@@ -421,7 +435,7 @@ if $train_after_reseg; then
     echo ---------------------------------------------------------------------
     echo "Starting exp/sgmm5_reseg on" `date`
     echo ---------------------------------------------------------------------
-    steps/train_sgmm2_reseg.sh \
+    steps/train_sgmm2.sh \
       --cmd "$train_cmd" $numLeavesSGMM $numGaussSGMM \
       data_reseg/train data/lang exp/tri5_ali_reseg exp/ubm5_reseg/final.ubm exp/sgmm5_reseg
     #steps/train_sgmm2_group.sh \
