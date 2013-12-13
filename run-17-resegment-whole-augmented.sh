@@ -26,27 +26,30 @@ max_states=150000
 wip=0.5
 stage=-10
 train_after_reseg=false
-segmentation_opts="--remove-noise-only-segments true --max-length-diff 0.4 --min-inter-utt-silence-length 1.0" 
+segmentation_opts="--remove-noise-only-segments false --max-length-diff 0.4 --min-inter-utt-silence-length 1.0"
 silence_segment_fraction=1.0
 keep_silence_segments=false
 remove_oov=false
-keep_fillers=false    # If true, prepare the STM file keeping the fillers in it. This is typically used while decoding the training data for retranscription
+train_decode_dir=exp/tri5/decode_train_reseg/score_10
+train_ali_dir=exp/tri5_ali
+add_fillers_opts="--num-fillers 5 --count-threshold 30"
+extract_insertions_opts=          # Give "--segments data/train/segments" if you want to add insertions only outside the human segments
+
+#train_decode_dir=exp/sgmm5_mmi_b0.1/decode_fmllr_train_it4_reseg/score_8
+#train_ali_dir=exp/sgmm5_ali
+#add_fillers_opts="--num-fillers 5 --count-threshold 30"
 
 . utils/parse_options.sh
 . ./path.sh
 . ./cmd.sh
 
-[ $type == "train" ] && keep_fillers=true
-
 eval reference_rttm=\$${type}_rttm_file
-[ ! -z $reference_rttm ] && [ -f $reference_rttm ]  && segmentation_opts="$segmentation_opts --reference-rttm $reference_rttm" 
+[ -f $reference_rttm ] && segmentation_opts="$segmentation_opts --reference-rttm $reference_rttm" 
 
 if [ $# -ne 0 ]; then
   echo "Usage: $(basename $0) --type (dev10h|dev2h|eval|shadow)"
   exit 1
 fi
-
-mkdir -p data_whole
 
 if [[ "$type" != "dev10h" && "$type" != "dev2h" && "$type" != "eval" && "$type" != "shadow" ]] ; then
   echo "Warning: invalid variable type=${type}, valid values are dev10h|dev2h|eval"
@@ -203,11 +206,7 @@ else
     elif [[ $type == shadow || $type == eval ]]; then
       echo "Not doing anything for the STM file!"
     else
-      if $keep_fillers; then
-        local/prepare_stm_separate_fillers.pl --fragmentMarkers \-\*\~ ${datadir}
-      else
-        local/prepare_stm.pl --fragmentMarkers \-\*\~ ${datadir}
-      fi
+      local/prepare_stm.pl --fragmentMarkers \-\*\~ ${datadir}
     fi
 
     if [ ! -f ${datadir}/.plp.done ]; then
@@ -269,85 +268,52 @@ if ! $skip_kws  && [ ! -f ${datadir}/kws/.done ] ; then
   fi
 fi
 
-if [[ ! -f data/train_whole/wav.scp || data/train_whole/wav.scp -ot "$train_data_dir" ]]; then
+if [[ ! -f data_augmented/train_whole/wav.scp || data_augmented/train_whole/wav.scp -ot "$train_data_dir" ]]; then
   echo ---------------------------------------------------------------------
-  echo "Preparing acoustic training lists in data/train on" `date`
+  echo "Preparing acoustic training lists in data_augmented/train on" `date`
   echo ---------------------------------------------------------------------
-  mkdir -p data/train_whole
-  local/prepare_acoustic_training_data_whole_separate_fillers.pl \
-    --vocab data/local/lexicon.txt --fragmentMarkers \-\*\~ \
-    $train_data_dir data/train_whole > data/train_whole/skipped_utts.log
-  mv data/train_whole/text data/train_whole/text_orig
-  if $keep_silence_segments; then
-    cat data/train_whole/text_orig | awk '{if (NF == 2 && $2 == "<silence>") {print $1} else {print $0}}' > data/train_whole/text
-  else
-    num_silence_segments=$(cat data/train_whole/text_orig | awk '{if (NF == 2 && $2 == "<silence>") {print $0}}' | wc -l)
-    num_keep_silence_segments=`echo $num_silence_segments | python -c "import sys; sys.stdout.write(\"%d\" % (float(sys.stdin.readline().strip()) * "$silence_segment_fraction"))"` 
-    cat data/train_whole/text_orig \
-      | awk 'BEGIN{i=0} \
-      { \
-        if (NF == 2 && $2 == "<silence>") { \
-          if (i<'$num_keep_silence_segments') { \
-            print $1; \
-            i++; \
-          } \
-        } else {print $0}\
-      }' > data/train_whole/text
-  fi
-  utils/fix_data_dir.sh data/train_whole
+  mkdir -p data_augmented/train_whole
+  local/run_retranscribe.sh --extract-insertions-opts "$extract_insertions_opts" --add-fillers-opts "$add_fillers_opts" --get-whole-transcripts true $train_decode_dir $train_ali_dir data_augmented/train_whole || exit 1
 fi
 
-if [[ ! -f data/train_whole/glm || data/train_whole/glm -ot "$glmFile" ]]; then
+if [[ ! -f data_augmented/train_whole/glm || data_augmented/train_whole/glm -ot "$glmFile" ]]; then
   echo ---------------------------------------------------------------------
-  echo "Preparing train stm files in data/train_whole on" `date`
+  echo "Preparing train stm files in data_augmented/train_whole on" `date`
   echo ---------------------------------------------------------------------
-  local/prepare_stm.pl --fragmentMarkers \-\*\~ data/train_whole || exit 1
+  local/prepare_stm.pl --fragmentMarkers \-\*\~ data_augmented/train_whole || exit 1
 fi
 
-echo ---------------------------------------------------------------------
-echo "Starting plp feature extraction for data/train_whole in plp_whole on" `date`
-echo ---------------------------------------------------------------------
-
-use_pitch=false
-use_ffv=false
-
-if [ ! -f data/train_whole/.plp.done ]; then
-  steps/make_plp.sh --cmd "$train_cmd" --nj $train_nj data/train_whole exp/make_plp/train_whole plp_whole
-
-  steps/compute_cmvn_stats.sh \
-    data/train_whole exp/make_plp/train_whole plp_whole
-  # In case plp or pitch extraction failed on some utterances, delist them
-  utils/fix_data_dir.sh data/train_whole
-  touch data/train_whole/.plp.done
-fi
-
-if [ ! -f data/train_whole_sub3/.done ]; then
+if [ ! -f data_augmented/train_whole_sub3/.done ]; then
   echo ---------------------------------------------------------------------
-  echo "Subsetting monophone training data in data/train_whole_sub[123] on" `date`
+  echo "Subsetting monophone training data in data_augmented/train_whole_sub[123] on" `date`
   echo ---------------------------------------------------------------------
-  numutt=`cat data/train_whole/feats.scp | wc -l`;
-  utils/subset_data_dir.sh data/train_whole  5000 data/train_whole_sub1
+  numutt=`cat data_augmented/train_whole/feats.scp | wc -l`;
+  utils/subset_data_dir.sh data_augmented/train_whole  5000 data_augmented/train_whole_sub1
   if [ $numutt -gt 10000 ] ; then
-    utils/subset_data_dir.sh data/train_whole 10000 data/train_whole_sub2
+    utils/subset_data_dir.sh data_augmented/train_whole 10000 data_augmented/train_whole_sub2
   else
-    (cd data; ln -s train_whole train_whole_sub2 )
+    (cd data_augmented; ln -s train_whole train_whole_sub2 )
   fi
   if [ $numutt -gt 20000 ] ; then
-    utils/subset_data_dir.sh data/train_whole 20000 data/train_whole_sub3
+    utils/subset_data_dir.sh data_augmented/train_whole 20000 data_augmented/train_whole_sub3
   else
-    (cd data; ln -s train_whole train_whole_sub3 )
+    (cd data_augmented; ln -s train_whole train_whole_sub3 )
   fi
 
-  touch data/train_whole_sub3/.done
+  touch data_augmented/train_whole_sub3/.done
 fi
 
+[ ! -d data_augmented/dev10h ] && cp -rT data/dev10h data_augmented/dev10h
+[ ! -d data_augmented/dev2h ] && cp -rT data/dev2h data_augmented/dev2h
+
 echo ---------------------------------------------------------------------
-echo "Resegment data in data_reseg on " `date`
+echo "Resegment data in data_augmented_reseg on " `date`
 echo ---------------------------------------------------------------------
 
-sh -x local/run_resegment.sh --remove-oov $remove_oov --train-nj $train_nj --nj $my_nj --type $type --segmentation_opts "$segmentation_opts" || exit 1
+sh -x local/run_resegment.sh --augmented true --data-in data_augmented --data-out data_augmented_reseg --remove-oov $remove_oov --train-nj $train_nj --nj $my_nj --type $type --segmentation_opts "$segmentation_opts" || exit 1
 
-datadir=data_reseg/${type}
+datadir=data_augmented_reseg/${type}
+
 #####################################################################
 #
 # data directory preparation
@@ -360,21 +326,21 @@ if ! $skip_kws  && [ ! -f ${datadir}/kws/.done ] ; then
   if [[ $type == shadow ]]; then
     
     # we expect that the ${dev2shadow} as well as ${eval2shadow} already exist
-    if [ ! -f data/${dev2shadow}/kws/.done ]; then
-      echo "Error: data/${dev2shadow}/kws/.done does not exist."
-      echo "Create the directory data/${dev2shadow} first, by calling $0 --type $dev2shadow --dataonly"
+    if [ ! -f $datadir/${dev2shadow}/kws/.done ]; then
+      echo "Error: $datadir/${dev2shadow}/kws/.done does not exist."
+      echo "Create the directory $datadir/${dev2shadow} first, by calling $0 --type $dev2shadow --dataonly"
       exit 1
     fi
-    if [ ! -f data/${eval2shadow}/kws/.done ]; then
-      echo "Error: data/${eval2shadow}/kws/.done does not exist."
-      echo "Create the directory data/${eval2shadow} first, by calling $0 --type $eval2shadow --dataonly"
+    if [ ! -f $datadir/${eval2shadow}/kws/.done ]; then
+      echo "Error: $datadir/${eval2shadow}/kws/.done does not exist."
+      echo "Create the directory $datadir/${eval2shadow} first, by calling $0 --type $eval2shadow --dataonly"
       exit 1
     fi
 
 
     local/kws_data_prep.sh --case_insensitive $case_insensitive \
       "${icu_opt[@]}" \
-      data/lang ${datadir} ${datadir}/kws
+      data_augmented/lang ${datadir} ${datadir}/kws
     utils/fix_data_dir.sh ${datadir}
 
     touch ${datadir}/kws/.done
@@ -389,7 +355,7 @@ if ! $skip_kws  && [ ! -f ${datadir}/kws/.done ] ; then
     
     local/kws_setup.sh --case_insensitive $case_insensitive \
       "${kws_flags[@]}" "${icu_opt[@]}" \
-      $my_ecf_file $my_kwlist_file data/lang ${datadir}
+      $my_ecf_file $my_kwlist_file data_augmented/lang ${datadir}
 
     touch ${datadir}/kws/.done
   fi
@@ -401,105 +367,12 @@ if $data_only ; then
   exit 0;
 fi
 
-if $train_after_reseg; then
-  echo ---------------------------------------------------------------------
-  echo "Starting (SAT) triphone training after resegmentation in exp/tri5_reseg on" `date`
-  echo ---------------------------------------------------------------------
-
-  if [ ! -f exp/tri5_reseg/.done ]; then
-    steps/align_si.sh \
-      --boost-silence $boost_sil --nj $train_nj --cmd "$train_cmd" \
-      data_reseg/train data/lang exp/tri4 exp/tri4_ali_reseg || exit 1
-    steps/train_sat.sh \
-      --boost-silence $boost_sil --cmd "$train_cmd" \
-      $numLeavesSAT $numGaussSAT data_reseg/train data/lang exp/tri4_ali_reseg exp/tri5_reseg || exit 1
-    touch exp/tri5_reseg/.done
-  fi
-
-  ################################################################################
-  # Ready to start SGMM training
-  ################################################################################
-
-  if [ ! -f exp/tri5_ali_reseg/.done ]; then
-    echo ---------------------------------------------------------------------
-    echo "Starting exp/tri5_ali_reseg on" `date`
-    echo ---------------------------------------------------------------------
-    steps/align_fmllr.sh \
-      --boost-silence $boost_sil --nj $train_nj --cmd "$train_cmd" \
-      data_reseg/train data/lang exp/tri5_reseg exp/tri5_ali_reseg || exit 1
-    touch exp/tri5_ali_reseg/.done
-  fi
-
-  if [ ! -f exp/ubm5_reseg/.done ]; then
-    echo ---------------------------------------------------------------------
-    echo "Starting exp/ubm5_reseg on" `date`
-    echo ---------------------------------------------------------------------
-    steps/train_ubm.sh \
-      --cmd "$train_cmd" $numGaussUBM \
-      data_reseg/train data/lang exp/tri5_ali_reseg exp/ubm5_reseg
-    touch exp/ubm5_reseg/.done
-  fi
-
-  if [ ! -f exp/sgmm5_reseg/.done ]; then
-    echo ---------------------------------------------------------------------
-    echo "Starting exp/sgmm5_reseg on" `date`
-    echo ---------------------------------------------------------------------
-    steps/train_sgmm2.sh \
-      --cmd "$train_cmd" $numLeavesSGMM $numGaussSGMM \
-      data_reseg/train data/lang exp/tri5_ali_reseg exp/ubm5_reseg/final.ubm exp/sgmm5_reseg
-    #steps/train_sgmm2_group.sh \
-      #  --cmd "$train_cmd" "${sgmm_group_extra_opts[@]-}" $numLeavesSGMM $numGaussSGMM \
-      #  data_reseg/train data/lang exp/tri5_ali_reseg exp/ubm5_reseg/final.ubm exp/sgmm5_reseg
-    touch exp/sgmm5_reseg/.done
-  fi
-
-  ################################################################################
-  # Ready to start discriminative SGMM training
-  ################################################################################
-
-  if [ ! -f exp/sgmm5_ali_reseg/.done ]; then
-    echo ---------------------------------------------------------------------
-    echo "Starting exp/sgmm5_ali_reseg on" `date`
-    echo ---------------------------------------------------------------------
-    steps/align_sgmm2.sh \
-      --nj $train_nj --cmd "$train_cmd" --transform-dir exp/tri5_ali_reseg \
-      --use-graphs true --use-gselect true \
-      data_reseg/train data/lang exp/sgmm5_reseg exp/sgmm5_ali_reseg
-    touch exp/sgmm5_ali_reseg/.done
-  fi
-
-  if [ ! -f exp/sgmm5_denlats_reseg/.done ]; then
-    echo ---------------------------------------------------------------------
-    echo "Starting exp/sgmm5_denlats_reseg on" `date`
-    echo ---------------------------------------------------------------------
-    steps/make_denlats_sgmm2.sh \
-      --nj $train_nj --sub-split $train_nj "${sgmm_denlats_extra_opts[@]}" \
-      --beam 10.0 --lattice-beam 6 --cmd "$decode_cmd" --transform-dir exp/tri5_ali_reseg \
-      data_reseg/train data/lang exp/sgmm5_ali_reseg exp/sgmm5_denlats_reseg
-    touch exp/sgmm5_denlats_reseg/.done
-  fi
-
-  if [ ! -f exp/sgmm5_mmi_b0.1_reseg/.done ]; then
-    echo ---------------------------------------------------------------------
-    echo "Starting exp/sgmm5_mmi_b0.1_reseg on" `date`
-    echo ---------------------------------------------------------------------
-    steps/train_mmi_sgmm2.sh \
-      --cmd "$train_cmd" "${sgmm_mmi_extra_opts[@]}" \
-      --zero-if-disjoint true --transform-dir exp/tri5_ali_reseg --boost 0.1 \
-      data_reseg/train data/lang exp/sgmm5_ali_reseg exp/sgmm5_denlats_reseg \
-      exp/sgmm5_mmi_b0.1_reseg
-    touch exp/sgmm5_mmi_b0.1_reseg/.done
-  fi
-fi
-
-
 ####################################################################
 ##
 ## FMLLR decoding 
 ##
 ####################################################################
-tri5=tri5
-$train_after_reseg && tri5=tri5_reseg
+tri5=tri5_augmented
 decode=exp/${tri5}/decode_${dirid}_reseg
 
 if [ ! -f ${decode}/.done ]; then
@@ -507,31 +380,7 @@ if [ ! -f ${decode}/.done ]; then
   echo "Spawning decoding with SAT models  on" `date`
   echo ---------------------------------------------------------------------
   utils/mkgraph.sh \
-    data/lang exp/$tri5 exp/$tri5/graph |tee exp/$tri5/mkgraph.log
-
-  mkdir -p $decode
-  #By default, we do not care about the lattices for this step -- we just want the transforms
-  #Therefore, we will reduce the beam sizes, to reduce the decoding times
-  steps/decode_fmllr_extra.sh --skip-scoring false \
-    --nj $my_nj --cmd "$decode_cmd" "${decode_extra_opts[@]}"\
-    exp/$tri5/graph ${datadir} ${decode} |tee ${decode}/decode.log
-  
-  local/run_kws_stt_task.sh --cer $cer --max-states $max_states \
-    --cmd "$decode_cmd" --skip-kws $skip_kws --skip-stt $skip_stt --wip $wip \
-    "${shadow_set_extra_opts[@]}" "${lmwt_plp_extra_opts[@]}" \
-    ${datadir} data/lang $decode
-  
-  touch ${decode}/.done
-fi
-
-exit 1
-
-if [ ! -f ${decode}/.done ]; then
-  echo ---------------------------------------------------------------------
-  echo "Spawning decoding with SAT models  on" `date`
-  echo ---------------------------------------------------------------------
-  utils/mkgraph.sh \
-    data/lang exp/$tri5 exp/$tri5/graph |tee exp/$tri5/mkgraph.log
+    data_augmented/lang exp/$tri5 exp/$tri5/graph |tee exp/$tri5/mkgraph.log
 
   mkdir -p $decode
   #By default, we do not care about the lattices for this step -- we just want the transforms
@@ -546,19 +395,18 @@ if ! $fast_path ; then
   local/run_kws_stt_task.sh --cer $cer --max-states $max_states \
     --cmd "$decode_cmd" --skip-kws $skip_kws --skip-stt $skip_stt --wip $wip \
     "${shadow_set_extra_opts[@]}" "${lmwt_plp_extra_opts[@]}" \
-    ${datadir} data/lang ${decode}
+    ${datadir} data_augmented/lang ${decode}
 
   local/run_kws_stt_task.sh --cer $cer --max-states $max_states \
     --cmd "$decode_cmd" --skip-kws $skip_kws --skip-stt $skip_stt --wip $wip \
     "${shadow_set_extra_opts[@]}" "${lmwt_plp_extra_opts[@]}" \
-    ${datadir} data/lang ${decode}.si
+    ${datadir} data_augmented/lang ${decode}.si
 fi
 
 ####################################################################
 ## SGMM2 decoding 
 ####################################################################
-sgmm5=sgmm5
-$train_after_reseg && sgmm5=sgmm5_reseg
+sgmm5=sgmm5_augmented
 decode=exp/${sgmm5}/decode_fmllr_${dirid}_reseg
 
 if [ ! -f $decode/.done ]; then
@@ -566,7 +414,7 @@ if [ ! -f $decode/.done ]; then
   echo "Spawning $decode on" `date`
   echo ---------------------------------------------------------------------
   utils/mkgraph.sh \
-    data/lang exp/$sgmm5 exp/$sgmm5/graph |tee exp/$sgmm5/mkgraph.log
+    data_augmented/lang exp/$sgmm5 exp/$sgmm5/graph |tee exp/$sgmm5/mkgraph.log
 
   mkdir -p $decode
   steps/decode_sgmm2.sh --skip-scoring true --use-fmllr true --nj $my_nj \
@@ -578,7 +426,7 @@ if [ ! -f $decode/.done ]; then
     local/run_kws_stt_task.sh --cer $cer --max-states $max_states \
       --cmd "$decode_cmd" --skip-kws $skip_kws --skip-stt $skip_stt --wip $wip \
       "${shadow_set_extra_opts[@]}" "${lmwt_plp_extra_opts[@]}" \
-      ${datadir} data/lang ${decode}
+      ${datadir} data_augmented/lang ${decode}
   fi
 fi
 
@@ -590,15 +438,14 @@ fi
 
 for iter in 1 2 3 4; do
   # Decode SGMM+MMI (via rescoring).
-  sgmm5_mmi_b0_1=sgmm5_mmi_b0.1
-  $train_after_reseg && sgmm5_mmi_b0_1=sgmm5_mmi_b0.1_reseg
+  sgmm5_mmi_b0_1=sgmm5_augmented_mmi_b0.1
   decode=exp/${sgmm5_mmi_b0_1}/decode_fmllr_${dirid}_it${iter}_reseg
   if [ ! -f $decode/.done ]; then
 
     mkdir -p $decode
     steps/decode_sgmm2_rescore.sh  --skip-scoring true \
       --cmd "$decode_cmd" --iter $iter --transform-dir exp/$tri5/decode_${dirid}_reseg \
-      data/lang ${datadir} exp/$sgmm5/decode_fmllr_${dirid}_reseg $decode | tee ${decode}/decode.log
+      data_augmented/lang ${datadir} exp/$sgmm5/decode_fmllr_${dirid}_reseg $decode | tee ${decode}/decode.log
 
     #We are done -- all lattices has been generated. We have to
     #a)Run MBR decoding
@@ -606,7 +453,7 @@ for iter in 1 2 3 4; do
     local/run_kws_stt_task.sh --cer $cer --max-states $max_states \
       --cmd "$decode_cmd" --skip-kws $skip_kws --skip-stt $skip_stt --wip $wip \
       "${shadow_set_extra_opts[@]}" "${lmwt_plp_extra_opts[@]}" \
-      ${datadir} data/lang $decode
+      ${datadir} data_augmented/lang $decode
     
     touch $decode/.done
   fi
@@ -617,7 +464,7 @@ done
 ## DNN decoding
 ##
 ####################################################################
-tri6_nnet=tri6_nnet
+tri6_nnet=tri6_augmented_nnet
 $train_after_reseg && tri6_nnet=tri6_nnet_reseg
 decode=exp/$tri6_nnet/decode_${dirid}_reseg
 
@@ -631,7 +478,7 @@ if [ -f $decode/.done ]; then
   local/run_kws_stt_task.sh --cer $cer --max-states $max_states \
     --cmd "$decode_cmd" --skip-kws $skip_kws --skip-stt $skip_stt --wip $wip \
     "${shadow_set_extra_opts[@]}" "${lmwt_plp_extra_opts[@]}" \
-    ${datadir} data/lang $decode
+    ${datadir} data_augmented/lang $decode
 fi
 
 echo "Everything looking good...." 

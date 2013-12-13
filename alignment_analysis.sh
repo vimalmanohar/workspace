@@ -122,9 +122,7 @@ if [ -z $(ls $dir/classes) ] || [ ! -f $dir/classes.done ]; then
   touch $dir/classes.done
 fi
 
-#./analyse_segmentation.py $dir/ref_classes $dir/classes > $dir/analysis.results
-#./analyse_segmentation.py -l $dir/ref_classes $dir/classes > $dir/analysis.results_withlengths
-./analyse_segmentation.py -l -m $dir/ref_classes $dir/classes > $dir/analysis.results_withlengths_withmarkers
+./analyse_segmentation.py -l -m $dir/ref_classes $dir/classes > $dir/segmentation_analysis.results
 
 [ ! -z $data ] && ./evaluate_segmentation.pl $data/segments $dir/ref_segments &> $dir/ref_segmentation.diff
 [ ! -z $data ] && [ ! -z $data_reseg ] && ./evaluate_segmentation.pl $data/segments $data_reseg/segments &> $dir/resegmentation.diff

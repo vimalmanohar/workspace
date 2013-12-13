@@ -8,7 +8,7 @@ set -o pipefail
 cmd=$decode_cmd
 cleanup=false
 prefix="BABEL_OP1_102"
-segmentation_opts="--remove-noise-only-segments true --split-on-noise-transitions true" 
+segmentation_opts="--remove-noise-only-segments false --min-inter-utt-silence-length 1.0 --max-length-diff 0.4" 
 data=
 data_reseg=
 alidir=
@@ -30,10 +30,12 @@ fi
 force_alidir=$1
 dir=$2
 
-[ -d $force_alidir ] || exit 1
 [ -d $dir ] || exit 1
-[ -f $force_alidir/ali.1.gz ] || exit 1
 [ -z $alidir ] && [ ! -f $dir/classes.1.gz ] && exit 1
+
+if [ -d $force_alidir ] || [ -f $force_alidir/ali.1.gz ]; then
+  steps/force_align_sgmm2 sh -cmd "$decode_cmd" data_augmented/dev10h data_augmented/lang $force_alidir/../../tri5_augmented/decode_dev10h_reseg $force_alidir/.. || exit 1
+fi
 
 force_ali_model=$force_alidir/../final.mdl
 [ -e $force_ali_model ] || exit 1
@@ -124,11 +126,12 @@ fi
 
 #./analyse_segmentation.py $dir/ref_classes $dir/classes > $dir/analysis.results
 #./analyse_segmentation.py -l $dir/ref_classes $dir/classes > $dir/analysis.results_withlengths
-./analyse_segmentation.py -l -m $dir/ref_classes $dir/classes > $dir/analysis.results_withlengths_withmarkers
+./analyse_segmentation.py -l -m $dir/ref_classes $dir/classes > $dir/force_align_analysis.results
 ./analyse_segmentation_RTTM.py -l -m mitfa.rttm $dir/classes $dir/rttm_classes > $dir/rttm_analysis.results
+./analyse_alignment.py -l -m --results-dir $dir/align_results --phones data/lang/phones.txt $dir/ref_align $dir/pred
+
 mkdir -p $dir/align_results
 for i in $dir/rttm_classes/*.ref; do cat $i; echo ""; done | sort | utils/segmentation2.pl $segmentation_opts > $dir/rttm_segments || exit 1
-./analyse_alignment.py -l -m --results-dir $dir/align_results --phones data/lang/phones.txt $dir/ref_align $dir/pred
 [ ! -z $data ] && ./evaluate_segmentation.pl $data/segments $dir/ref_segments &> $dir/ref_segmentation.diff
 [ ! -z $data ] && [ ! -z $data_reseg ] && ./evaluate_segmentation.pl $data/segments $data_reseg/segments &> $dir/resegmentation.diff
 [ ! -z $data ] && [ ! -z $data_reseg ] && ./evaluate_segmentation.pl $dir/ref_segments $data_reseg/segments &> $dir/ref_resegmentation.diff
